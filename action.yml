@@ -1,0 +1,93 @@
+name: "skills-publish"
+description: "Validate, quote, publish, and poll HCS-26 skill releases via Registry Broker"
+author: "Hashgraph Online"
+inputs:
+  api-base-url:
+    description: "Registry Broker base URL (either .../registry or .../registry/api/v1)"
+    required: false
+    default: "https://hol.org/registry/api/v1"
+  api-key:
+    description: "Registry Broker API key"
+    required: true
+  account-id:
+    description: "Optional Hedera account ID used for publish authorization"
+    required: false
+  skill-dir:
+    description: "Path to the skill package folder containing SKILL.md and skill.json"
+    required: true
+  name:
+    description: "Optional name override for skill.json"
+    required: false
+  version:
+    description: "Optional version override for skill.json"
+    required: false
+  stamp-repo-commit:
+    description: "When true, writes repo and commit fields into the publish payload"
+    required: false
+    default: "true"
+  poll-timeout-ms:
+    description: "Publish job poll timeout in milliseconds"
+    required: false
+    default: "720000"
+  poll-interval-ms:
+    description: "Publish job poll interval in milliseconds"
+    required: false
+    default: "4000"
+  annotate:
+    description: "When true, posts results to release notes or merged PR"
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token used for release or PR annotations"
+    required: false
+outputs:
+  skill-name:
+    description: "Published skill name"
+    value: ${{ steps.publish.outputs.skill-name }}
+  skill-version:
+    description: "Published skill version"
+    value: ${{ steps.publish.outputs.skill-version }}
+  quote-id:
+    description: "Quote identifier used for publish"
+    value: ${{ steps.publish.outputs.quote-id }}
+  job-id:
+    description: "Publish job identifier"
+    value: ${{ steps.publish.outputs.job-id }}
+  directory-topic-id:
+    description: "Directory topic ID returned by publish completion"
+    value: ${{ steps.publish.outputs.directory-topic-id }}
+  package-topic-id:
+    description: "Package topic ID returned by publish completion"
+    value: ${{ steps.publish.outputs.package-topic-id }}
+  skill-json-hrl:
+    description: "HCS-1 HRL for skill.json"
+    value: ${{ steps.publish.outputs.skill-json-hrl }}
+  result-json:
+    description: "Raw result JSON payload"
+    value: ${{ steps.publish.outputs.result-json }}
+  annotation-target:
+    description: "Where annotations were posted"
+    value: ${{ steps.publish.outputs.annotation-target }}
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Publish skill
+      id: publish
+      shell: bash
+      env:
+        INPUT_API_BASE_URL: ${{ inputs.api-base-url }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_ACCOUNT_ID: ${{ inputs.account-id }}
+        INPUT_SKILL_DIR: ${{ inputs.skill-dir }}
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_STAMP_REPO_COMMIT: ${{ inputs.stamp-repo-commit }}
+        INPUT_POLL_TIMEOUT_MS: ${{ inputs.poll-timeout-ms }}
+        INPUT_POLL_INTERVAL_MS: ${{ inputs.poll-interval-ms }}
+        INPUT_ANNOTATE: ${{ inputs.annotate }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: node "${{ github.action_path }}/entrypoint.mjs"
