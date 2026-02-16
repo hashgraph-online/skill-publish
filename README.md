@@ -32,9 +32,9 @@ jobs:
 
 ## Inputs
 
-- `api-base-url`: Registry Broker base URL (`.../registry` or `.../registry/api/v1`)
+- `api-base-url`: Registry Broker base URL (`.../registry` or `.../registry/api/v1`, optional)
 - `api-key`: Registry Broker API key (required)
-- `account-id`: Hedera account ID (optional)
+- `account-id`: Hedera account ID (optional; usually not needed for user API keys)
 - `skill-dir`: Folder containing `SKILL.md` and `skill.json` (required)
 - `name`: Optional name override
 - `version`: Optional version override
