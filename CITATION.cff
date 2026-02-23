@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+title: "skill-publish"
+message: "If you use skill-publish, please cite it using this metadata."
+type: software
+authors:
+  - name: "Hashgraph Online"
+repository-code: "https://github.com/hashgraph-online/skill-publish"
+url: "https://hol.org/registry/skills"
+license: "Apache-2.0"
+doi: "10.5281/zenodo.18748325"
