@@ -1,6 +1,9 @@
 name: "skill-publish"
 description: "Validate, quote, publish, and poll HCS-26 skill releases via Registry Broker"
 author: "Hashgraph Online"
+branding:
+  icon: "upload-cloud"
+  color: "blue"
 inputs:
   api-base-url:
     description: "Registry Broker base URL (either .../registry or .../registry/api/v1)"

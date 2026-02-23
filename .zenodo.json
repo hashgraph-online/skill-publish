@@ -1,0 +1,32 @@
+{
+  "title": "skill-publish",
+  "description": "GitHub Action for validating, quoting, publishing, and polling HCS-26 skill releases through Registry Broker.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "apache-2.0",
+  "creators": [
+    {
+      "name": "Hashgraph Online"
+    }
+  ],
+  "keywords": [
+    "github-action",
+    "ai-agents",
+    "registry",
+    "hedera",
+    "hcs-26",
+    "skills"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://hol.org/registry/skills",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://hol.org/registry/api/v1/openapi.json",
+      "relation": "documents",
+      "scheme": "url"
+    }
+  ]
+}
