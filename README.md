@@ -2,6 +2,10 @@
 
 GitHub Action to validate, quote, publish, and poll HCS-26 skill releases through Registry Broker.
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18748325.svg?style=for-the-badge)](https://doi.org/10.5281/zenodo.18748325)
+[![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
+[![Registry Skills](https://img.shields.io/badge/HOL-Skills-5599FE?style=for-the-badge)](https://hol.org/registry/skills)
+
 ## Usage
 
 ```yaml
