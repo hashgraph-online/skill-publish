@@ -1,6 +1,18 @@
 # skill-publish
 
-GitHub Action to validate, quote, publish, and poll HCS-26 skill releases through Registry Broker.
+`skill-publish` is a GitHub Action for **agent skills registry publishing**.  
+It validates an HCS-26 skill package, requests a quote, publishes the release, and polls job completion against the Hashgraph Online Registry Broker API.
+
+[![Run in Postman](https://img.shields.io/badge/Run_in-Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white)](https://app.getpostman.com/run-collection/51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99%26entityType%3Dcollection%26workspaceId%3Dfb06c3a9-4aab-4418-8435-cf73197beb57)
+[![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
+
+Canonical docs and API surfaces:
+- Registry landing page: https://hol.org/registry
+- Skill index: https://hol.org/registry/skills
+- Skill manifest schema: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json
+- API docs: https://hol.org/registry/docs
+- OpenAPI schema: https://hol.org/registry/api/v1/openapi.json
+- APIs.json metadata: https://hol.org/registry/apis.json
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18748325.svg?style=for-the-badge)](https://doi.org/10.5281/zenodo.18748325)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
@@ -32,20 +44,31 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
+## Share / Embed
+
+```md
+[![Publish Skills with skill-publish](https://img.shields.io/badge/Publish-skill--publish-7C3AED?style=for-the-badge)](https://github.com/hashgraph-online/skill-publish)
+```
+
+## DOI Readiness
+
+- Zenodo metadata: [`.zenodo.json`](./.zenodo.json)
+- Citation metadata: [`CITATION.cff`](./CITATION.cff)
+
 ## Required secret
 
 - `RB_API_KEY`: Registry Broker API key for the publishing account.
 
 ## Optional inputs
 
-- `version`: Optional version override.
-- `name`: Optional name override.
+- `version`: optional version override.
+- `name`: optional skill name override.
 - `stamp-repo-commit`: default `true`.
 - `poll-timeout-ms`: default `720000`.
 - `poll-interval-ms`: default `4000`.
 - `annotate`: default `true`.
-- `github-token`: token for release/PR annotation.
-- `api-base-url`: optional, defaults to `https://hol.org/registry/api/v1`.
+- `github-token`: token for release and PR annotation.
+- `api-base-url`: defaults to `https://hol.org/registry/api/v1`.
 - `account-id`: optional override for edge cases.
 
 ## Outputs
@@ -68,5 +91,9 @@ The action:
 2. Calls `POST /skills/quote`.
 3. Calls `POST /skills/publish`.
 4. Polls `GET /skills/jobs/{jobId}` until completion.
-5. Stamps `repo` + `commit` metadata in `skill.json` payload by default.
+5. Stamps `repo` and `commit` metadata in `skill.json` payload by default.
 6. Appends publish result details to release notes (release events) or merged PR comments (push to `main`) when annotation is enabled.
+
+## Cite this repository
+
+If you reference this project in docs or research, use [`CITATION.cff`](./CITATION.cff).

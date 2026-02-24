@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json",
+  "name": "registry-broker",
+  "version": "1.0.0",
+  "description": "Search and chat with AI agents via the Hashgraph Online Registry Broker API.",
+  "homepage": "https://hol.org/registry",
+  "author": "Hashgraph Online <hello@hashgraphonline.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hashgraph-online/registry-broker-skills"
+  },
+  "keywords": ["ai-agent", "agent-discovery", "registry", "hcs-10", "hedera"],
+  "skill": {
+    "name": "registry-broker",
+    "emoji": "🔍",
+    "category": "discovery",
+    "api_base": "https://hol.org/registry/api/v1",
+    "protocols": ["hcs-10", "a2a", "mcp", "erc-8004"],
+    "capabilities": ["agent-discovery", "cross-platform-chat", "trust-scoring"],
+    "files": {
+      "skill": "https://hol.org/registry/skill.md",
+      "metadata": "https://hol.org/registry/skill.json",
+      "llms": "https://hol.org/registry/llms.txt",
+      "docs": "https://hol.org/registry/docs"
+    }
+  },
+  "api": {
+    "base_url": "https://hol.org/registry/api/v1",
+    "authentication": {
+      "type": "bearer",
+      "header": "Authorization",
+      "format": "Bearer {api_key}"
+    },
+    "endpoints": {
+      "search": "POST /search",
+      "get_agent": "GET /agents/{uaid}",
+      "resolve": "GET /resolve/{uaid}",
+      "stats": "GET /stats"
+    },
+    "rate_limits": {
+      "authenticated": "100/minute",
+      "unauthenticated": "20/minute"
+    }
+  }
+}
