@@ -176,6 +176,33 @@ const requestJson = async (params) => {
   return response.json();
 };
 
+const findExistingSkillVersion = async (params) => {
+  const { apiBaseUrl, apiKey, name, version } = params;
+  const response = await requestJson({
+    method: 'GET',
+    url: buildApiUrl(apiBaseUrl, '/skills/list', {
+      name,
+      version,
+      limit: 20,
+    }),
+    apiKey,
+  });
+
+  const items = Array.isArray(response?.items) ? response.items : [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const itemName = typeof item.name === 'string' ? item.name.trim() : '';
+    const itemVersion = typeof item.version === 'string' ? item.version.trim() : '';
+    if (itemName === name && itemVersion === version) {
+      return item;
+    }
+  }
+
+  return null;
+};
+
 const parseEventPayload = async () => {
   const eventPath = getEnv('GITHUB_EVENT_PATH');
   if (!eventPath) {
@@ -237,15 +264,19 @@ const buildPublishMarkdown = (result) => {
   const lines = [];
   lines.push('### HCS-26 skill publish result');
   lines.push('');
+  lines.push(`- Status: \`${result.published === false ? 'skipped' : 'published'}\``);
   lines.push(`- Name: \`${result.skillName}\``);
   lines.push(`- Version: \`${result.skillVersion}\``);
-  lines.push(`- Quote ID: \`${result.quoteId}\``);
-  lines.push(`- Job ID: \`${result.jobId}\``);
+  lines.push(`- Quote ID: \`${result.quoteId || 'n/a'}\``);
+  lines.push(`- Job ID: \`${result.jobId || 'n/a'}\``);
   lines.push(`- Directory Topic: \`${result.directoryTopicId ?? 'n/a'}\``);
   lines.push(`- Package Topic: \`${result.packageTopicId ?? 'n/a'}\``);
   lines.push(`- skill.json HRL: \`${result.skillJsonHrl ?? 'n/a'}\``);
-  lines.push(`- Credits: \`${result.credits}\``);
-  lines.push(`- Estimated Cost: \`${result.estimatedCostHbar} HBAR\``);
+  lines.push(`- Credits: \`${result.credits ?? 0}\``);
+  lines.push(`- Estimated Cost: \`${result.estimatedCostHbar ?? '0'} HBAR\``);
+  if (result.published === false && result.skippedReason) {
+    lines.push(`- Skip reason: \`${result.skippedReason}\``);
+  }
   lines.push('');
   lines.push(`- Repo: \`${result.repoUrl ?? 'n/a'}\``);
   lines.push(`- Commit: \`${result.commitSha ?? 'n/a'}\``);
@@ -415,6 +446,62 @@ const run = async () => {
   }
   if (!skillDescription) {
     throw new ActionError('skill.json must include description.');
+  }
+
+  const existingVersion = await findExistingSkillVersion({
+    apiBaseUrl,
+    apiKey,
+    name: skillName,
+    version: skillVersion,
+  });
+
+  if (existingVersion) {
+    const result = {
+      skillName,
+      skillVersion,
+      quoteId: '',
+      jobId: '',
+      directoryTopicId:
+        typeof existingVersion.directoryTopicId === 'string'
+          ? existingVersion.directoryTopicId
+          : null,
+      packageTopicId:
+        typeof existingVersion.packageTopicId === 'string'
+          ? existingVersion.packageTopicId
+          : typeof existingVersion.versionRegistryTopicId === 'string'
+            ? existingVersion.versionRegistryTopicId
+            : null,
+      skillJsonHrl:
+        typeof existingVersion.skillJsonHrl === 'string'
+          ? existingVersion.skillJsonHrl
+          : typeof existingVersion.manifestHrl === 'string'
+            ? existingVersion.manifestHrl
+            : null,
+      credits: 0,
+      estimatedCostHbar: '0',
+      repoUrl: repoUrl || null,
+      commitSha: commitSha || null,
+      published: false,
+      skippedReason: 'version-exists',
+    };
+
+    stdout(`Skill version ${skillName}@${skillVersion} already exists. Skipping publish.`);
+
+    const markdown = buildPublishMarkdown(result);
+    await appendStepSummary(markdown);
+
+    await setActionOutput('skill-name', result.skillName);
+    await setActionOutput('skill-version', result.skillVersion);
+    await setActionOutput('quote-id', '');
+    await setActionOutput('job-id', '');
+    await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
+    await setActionOutput('package-topic-id', result.packageTopicId ?? '');
+    await setActionOutput('skill-json-hrl', result.skillJsonHrl ?? '');
+    await setActionOutput('annotation-target', 'none');
+    await setActionOutput('result-json', JSON.stringify(result, null, 2));
+
+    stdout(markdown);
+    return;
   }
 
   const config = await requestJson({

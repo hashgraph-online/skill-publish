@@ -10,9 +10,13 @@ Canonical docs and API surfaces:
 - Registry landing page: https://hol.org/registry
 - Skill index: https://hol.org/registry/skills
 - Skill manifest schema: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json
-- API docs: https://hol.org/registry/docs
+- Product docs: https://hol.org/docs/registry-broker/
+- Interactive API docs: https://hol.org/registry/docs
 - OpenAPI schema: https://hol.org/registry/api/v1/openapi.json
+- Live stats endpoint: https://hol.org/registry/api/v1/dashboard/stats
 - APIs.json metadata: https://hol.org/registry/apis.json
+- Repository APIs.json: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/apis.json
+- Repository LLM index: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/llms.txt
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18748325.svg?style=for-the-badge)](https://doi.org/10.5281/zenodo.18748325)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
@@ -54,6 +58,8 @@ jobs:
 
 - Zenodo metadata: [`.zenodo.json`](./.zenodo.json)
 - Citation metadata: [`CITATION.cff`](./CITATION.cff)
+- Schema validation workflow: [`.github/workflows/schema-validate.yml`](./.github/workflows/schema-validate.yml)
+- Release workflow: [`.github/workflows/release.yml`](./.github/workflows/release.yml)
 
 ## Required secret
 
@@ -88,11 +94,12 @@ jobs:
 The action:
 
 1. Validates package files and `/skills/config` constraints.
-2. Calls `POST /skills/quote`.
-3. Calls `POST /skills/publish`.
-4. Polls `GET /skills/jobs/{jobId}` until completion.
-5. Stamps `repo` and `commit` metadata in `skill.json` payload by default.
-6. Appends publish result details to release notes (release events) or merged PR comments (push to `main`) when annotation is enabled.
+2. Checks whether the exact `name@version` already exists and skips publish when it does.
+3. Calls `POST /skills/quote` when publish is needed.
+4. Calls `POST /skills/publish`.
+5. Polls `GET /skills/jobs/{jobId}` until completion.
+6. Stamps `repo` and `commit` metadata in `skill.json` payload by default.
+7. Appends publish result details to release notes (release events) or merged PR comments (push to `main`) when annotation is enabled.
 
 ## Cite this repository
 
