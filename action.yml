@@ -1,5 +1,5 @@
 name: "skill-publish"
-description: "Idempotent HCS-26 skill release pipeline: validate, quote, publish, poll, and annotate GitHub"
+description: "Publish HCS-26 skills without custom quote/publish/poll scripts"
 author: "Hashgraph Online"
 branding:
   icon: "upload-cloud"

@@ -2,18 +2,51 @@
 
 `skill-publish` is the GitHub Action for shipping **HCS-26 skill releases** to the Hashgraph Online Registry Broker with one workflow step.
 
-It is optimized for real release pipelines:
+If you are building skills and do not want to hand-roll publish orchestration, this action handles the release path:
 
-- idempotent by `name@version` (safe re-runs)
-- validates package limits against live broker config
-- quotes credits before publish
-- publishes and polls completion automatically
-- emits machine-readable outputs for downstream jobs
-- annotates releases/PRs with publish results
+- validate package against broker limits
+- quote credits
+- publish
+- poll completion
+- emit outputs for downstream jobs
+- optionally annotate release/PR
 
 [![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-skill--publish-2EA44F?style=for-the-badge&logo=github)](https://github.com/marketplace/actions/skill-publish)
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
+
+## HCS-26 in 60 Seconds
+
+You can use this action without being deep in the spec.
+
+- A skill package includes `SKILL.md` and `skill.json`.
+- HCS-26 stores package files and publishes registry records for discovery/versioning.
+- The Registry Broker exposes this as API endpoints (`/skills/config`, `/skills/quote`, `/skills/publish`, `/skills/jobs/{id}`).
+- This action is a thin automation layer over those endpoints.
+
+If you want the full standard details, see:
+- https://github.com/hashgraph-online/hiero-consensus-specifications/blob/main/docs/standards/hcs-26.md
+
+## Developer Value
+
+Without this action, every pipeline typically needs custom scripts for:
+
+1. package validation and size checks
+2. idempotency checks (`name@version` exists?)
+3. quote request + publish request + job polling
+4. wiring output data to later workflow steps
+
+With this action, that logic is in one step and one versioned dependency.
+
+## You Provide vs Action Handles
+
+| You provide | Action handles |
+| --- | --- |
+| `skill-dir` with `SKILL.md` and `skill.json` | file discovery, MIME detection, size checks |
+| `RB_API_KEY` secret | authenticated API calls |
+| optional overrides (`name`, `version`) | payload shaping and metadata stamping |
+| optional annotation settings | release/PR annotation behavior |
+| workflow trigger | quote/publish/job polling orchestration |
 
 ## Quick Start
 
@@ -42,13 +75,23 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
-## Why Teams Use This Action
+## Minimal Skill Package
 
-- **Release-safe idempotency**: if the exact version already exists, the run exits cleanly with `published=false`.
-- **Governed packaging**: validates file count, byte limits, and MIME policy from `/skills/config` before publish.
-- **Traceability by default**: stamps `repo` and `commit` into publish payload metadata.
-- **CI/CD-ready outputs**: exposes topic IDs, job IDs, and serialized result JSON for later workflow steps.
-- **Operator visibility**: writes a Markdown publish report to step summary and GitHub annotation targets.
+```
+skills/my-skill/
+├── SKILL.md
+└── skill.json
+```
+
+Example `skill.json`:
+
+```json
+{
+  "name": "my-skill",
+  "version": "0.1.0",
+  "description": "Example skill package"
+}
+```
 
 ## Inputs
 
@@ -84,6 +127,11 @@ jobs:
 | `annotation-target` | Annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
 | `result-json` | Full result payload as JSON string. |
 
+Useful for first-time HCS-26 users:
+- `directory-topic-id`: where the skill record lives
+- `package-topic-id`: package/version topic reference
+- `skill-json-hrl`: direct HCS locator for `skill.json`
+
 ## Example: Gate Follow-up Jobs on Publish State
 
 ```yaml
@@ -108,11 +156,16 @@ jobs:
 
 1. Discovers and validates package files in `skill-dir`.
 2. Resolves broker limits from `/skills/config`.
-3. Checks if `name@version` already exists (skip-safe).
+3. Checks if `name@version` already exists.
 4. Requests quote via `POST /skills/quote`.
 5. Publishes via `POST /skills/publish`.
 6. Polls `GET /skills/jobs/{jobId}` until completion.
 7. Emits outputs, step summary, and optional GitHub annotations.
+
+Idempotency behavior:
+- if version already exists, action exits cleanly with:
+  - `published=false`
+  - `skip-reason=version-exists`
 
 ## Permissions and Security
 
@@ -129,6 +182,7 @@ jobs:
 - **quote/publish failures**: inspect `result-json` and step summary first.
 - **timeout**: increase `poll-timeout-ms` for high-load periods.
 - **annotation failure**: publish can still succeed; see `annotation-target` and step logs.
+- **missing files**: ensure `skill-dir` contains both `SKILL.md` and `skill.json`.
 
 ## Canonical References
 
