@@ -1,40 +1,12 @@
 # skill-publish
 
-`skill-publish` is a GitHub Action for publishing skill packages from CI.
+`skill-publish` is a GitHub Action that publishes a skill package from CI and returns stable references you can share.
 
-If your repo contains `SKILL.md` and `skill.json`, this action handles the release workflow:
-
-- validate package against broker limits
-- quote credits
-- publish
-- poll completion
-- emit outputs for downstream jobs
-- optionally annotate release/PR
+A skill package is `SKILL.md` + `skill.json` (plus optional files). The action validates, quotes, publishes, waits for completion, and emits outputs.
 
 [![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-skill--publish-2EA44F?style=for-the-badge&logo=github)](https://github.com/marketplace/actions/skill-publish)
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
-
-## Developer Value
-
-Without this action, every pipeline typically needs custom scripts for:
-
-1. package validation and size checks
-2. idempotency checks (`name@version` exists?)
-3. quote request + publish request + job polling
-4. wiring output data to later workflow steps
-
-With this action, that logic is in one step and one versioned dependency.
-
-## You Provide vs Action Handles
-
-| You provide | Action handles |
-| --- | --- |
-| `skill-dir` with `SKILL.md` and `skill.json` | file discovery, MIME detection, size checks |
-| `RB_API_KEY` secret | authenticated API calls |
-| optional overrides (`name`, `version`) | payload shaping and metadata stamping |
-| optional annotation settings | release/PR annotation behavior |
-| workflow trigger | quote/publish/job polling orchestration |
 
 ## Quick Start
 
@@ -63,6 +35,19 @@ jobs:
           github-token: ${{ github.token }}
 ```
 
+## Prerequisites (API Key + Credits)
+
+To publish from CI, you need:
+
+1. An API key for authenticated broker requests.
+2. Credits to pay for broker usage.
+
+Fast path:
+
+1. Generate an API key: https://hol.org/registry/docs?tab=api-keys
+2. Add credits: https://hol.org/registry/docs?tab=credits
+3. Save the key as a GitHub Actions secret (example name: `RB_API_KEY`)
+
 ## Minimal Skill Package
 
 ```
@@ -81,16 +66,28 @@ Example `skill.json`:
 }
 ```
 
-## Under the Hood (HCS-26)
+## Why This Matters (Trustless Skills)
 
-You do not need to know the full standard to use this action, but this is what it maps to:
+Most “skills” get shared as copy/paste blobs or mutable links. That works until you need version pinning, audits, or reproducibility.
 
-- package files are validated and prepared for HCS-26 publishing
-- broker endpoints handle quote, publish, and job polling
-- outputs expose the resulting topic IDs and HRL references
+In this context, a “trustless skill release” means:
 
-Full standard:
-- https://github.com/hashgraph-online/hiero-consensus-specifications/blob/main/docs/standards/hcs-26.md
+- you publish an exact `name@version`
+- consumers can later re-fetch the same published artifact by its canonical reference
+- you can compare versions over time without relying on a private server or a package registry
+- the published payload can be traced back to a repo + commit (default behavior)
+
+This action exists to make that publish step deterministic and automated in CI.
+
+## What You Provide vs What Runs in CI
+
+| You provide | Action handles |
+| --- | --- |
+| `skill-dir` with `SKILL.md` and `skill.json` | file discovery, MIME detection, size checks |
+| `RB_API_KEY` secret | authenticated API calls |
+| optional overrides (`name`, `version`) | payload shaping and metadata stamping |
+| optional annotation settings | release/PR annotation behavior |
+| workflow trigger | quote/publish/job polling orchestration |
 
 ## Inputs
 
@@ -120,16 +117,18 @@ Full standard:
 | `job-id` | Publish job identifier. |
 | `directory-topic-id` | Skill directory topic ID. |
 | `package-topic-id` | Skill package topic ID. |
-| `skill-json-hrl` | HCS-1 HRL for `skill.json`. |
+| `skill-json-hrl` | Canonical `hcs://...` reference for `skill.json`. |
 | `credits` | Credits consumed. |
 | `estimated-cost-hbar` | Estimated HBAR cost from quote. |
 | `annotation-target` | Annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
 | `result-json` | Full result payload as JSON string. |
 
-Useful for first-time HCS-26 users:
+Useful references after publish:
 - `directory-topic-id`: where the skill record lives
 - `package-topic-id`: package/version topic reference
-- `skill-json-hrl`: direct HCS locator for `skill.json`
+- `skill-json-hrl`: canonical reference you can paste into docs, release notes, or tooling
+
+An HRL looks like: `hcs://1/0.0.12345`
 
 ## Example: Gate Follow-up Jobs on Publish State
 
@@ -182,6 +181,16 @@ Idempotency behavior:
 - **timeout**: increase `poll-timeout-ms` for high-load periods.
 - **annotation failure**: publish can still succeed; see `annotation-target` and step logs.
 - **missing files**: ensure `skill-dir` contains both `SKILL.md` and `skill.json`.
+
+## How Verification Works (HCS-26)
+
+You do not need the full standard to use this action, but the storage and lookup rules follow HCS-26.
+
+- the Registry Broker is the publish API surface
+- the publish result includes topic IDs and `hcs://...` HRLs that can be resolved independently
+
+Full standard:
+- https://github.com/hashgraph-online/hiero-consensus-specifications/blob/main/docs/standards/hcs-26.md
 
 ## Canonical References
 
