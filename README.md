@@ -1,28 +1,21 @@
 # skill-publish
 
-`skill-publish` is a GitHub Action for **agent skills registry publishing**.  
-It validates an HCS-26 skill package, requests a quote, publishes the release, and polls job completion against the Hashgraph Online Registry Broker API.
+`skill-publish` is the GitHub Action for shipping **HCS-26 skill releases** to the Hashgraph Online Registry Broker with one workflow step.
 
-[![Run in Postman](https://img.shields.io/badge/Run_in-Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white)](https://app.getpostman.com/run-collection/51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D51598040-f1ef77fd-ae05-4edb-8663-efa52b0d1e99%26entityType%3Dcollection%26workspaceId%3Dfb06c3a9-4aab-4418-8435-cf73197beb57)
+It is optimized for real release pipelines:
+
+- idempotent by `name@version` (safe re-runs)
+- validates package limits against live broker config
+- quotes credits before publish
+- publishes and polls completion automatically
+- emits machine-readable outputs for downstream jobs
+- annotates releases/PRs with publish results
+
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-skill--publish-2EA44F?style=for-the-badge&logo=github)](https://github.com/marketplace/actions/skill-publish)
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
-
-Canonical docs and API surfaces:
-- Registry landing page: https://hol.org/registry
-- Skill index: https://hol.org/registry/skills
-- Skill manifest schema: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json
-- Product docs: https://hol.org/docs/registry-broker/
-- Interactive API docs: https://hol.org/registry/docs
-- OpenAPI schema: https://hol.org/registry/api/v1/openapi.json
-- Live stats endpoint: https://hol.org/registry/api/v1/dashboard/stats
-- APIs.json metadata: https://hol.org/registry/apis.json
-- Repository APIs.json: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/apis.json
-- Repository LLM index: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/llms.txt
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18748325.svg?style=for-the-badge)](https://doi.org/10.5281/zenodo.18748325)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
-[![Registry Skills](https://img.shields.io/badge/HOL-Skills-5599FE?style=for-the-badge)](https://hol.org/registry/skills)
 
-## Usage
+## Quick Start
 
 ```yaml
 name: Publish Skill
@@ -40,67 +33,113 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
-      - uses: hashgraph-online/skill-publish@v1
+      - name: Publish to HCS-26 registry
+        uses: hashgraph-online/skill-publish@v1
         with:
           api-key: ${{ secrets.RB_API_KEY }}
-          skill-dir: skills/registry-broker
+          skill-dir: skills/my-skill
           annotate: "true"
           github-token: ${{ github.token }}
 ```
 
-## Share / Embed
+## Why Teams Use This Action
 
-```md
-[![Publish Skills with skill-publish](https://img.shields.io/badge/Publish-skill--publish-7C3AED?style=for-the-badge)](https://github.com/hashgraph-online/skill-publish)
-```
+- **Release-safe idempotency**: if the exact version already exists, the run exits cleanly with `published=false`.
+- **Governed packaging**: validates file count, byte limits, and MIME policy from `/skills/config` before publish.
+- **Traceability by default**: stamps `repo` and `commit` into publish payload metadata.
+- **CI/CD-ready outputs**: exposes topic IDs, job IDs, and serialized result JSON for later workflow steps.
+- **Operator visibility**: writes a Markdown publish report to step summary and GitHub annotation targets.
 
-## DOI Readiness
+## Inputs
 
-- Zenodo metadata: [`.zenodo.json`](./.zenodo.json)
-- Citation metadata: [`CITATION.cff`](./CITATION.cff)
-- Schema validation workflow: [`.github/workflows/schema-validate.yml`](./.github/workflows/schema-validate.yml)
-- Release workflow: [`.github/workflows/release.yml`](./.github/workflows/release.yml)
-
-## Required secret
-
-- `RB_API_KEY`: Registry Broker API key for the publishing account.
-
-## Optional inputs
-
-- `version`: optional version override.
-- `name`: optional skill name override.
-- `stamp-repo-commit`: default `true`.
-- `poll-timeout-ms`: default `720000`.
-- `poll-interval-ms`: default `4000`.
-- `annotate`: default `true`.
-- `github-token`: token for release and PR annotation.
-- `api-base-url`: defaults to `https://hol.org/registry/api/v1`.
-- `account-id`: optional override for edge cases.
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `api-key` | Yes | - | Registry Broker API key. |
+| `skill-dir` | Yes | - | Path containing `SKILL.md` and `skill.json`. |
+| `api-base-url` | No | `https://hol.org/registry/api/v1` | Broker base URL (`.../registry` or `.../registry/api/v1`). |
+| `account-id` | No | - | Optional Hedera account ID for publish authorization edge cases. |
+| `name` | No | - | Optional skill name override for `skill.json`. |
+| `version` | No | - | Optional version override for `skill.json`. |
+| `stamp-repo-commit` | No | `true` | Stamp `repo` and `commit` metadata into payload. |
+| `poll-timeout-ms` | No | `720000` | Max time to wait for publish job completion. |
+| `poll-interval-ms` | No | `4000` | Interval between publish job status polls. |
+| `annotate` | No | `true` | Post publish result to release notes or merged PR comments. |
+| `github-token` | No | - | Token used only when `annotate=true`. |
 
 ## Outputs
 
-- `skill-name`
-- `skill-version`
-- `quote-id`
-- `job-id`
-- `directory-topic-id`
-- `package-topic-id`
-- `skill-json-hrl`
-- `result-json`
-- `annotation-target`
+| Output | Description |
+| --- | --- |
+| `published` | `true` when publish executed, `false` when skipped. |
+| `skip-reason` | Skip reason (currently `version-exists`). |
+| `skill-name` | Skill name from publish result. |
+| `skill-version` | Skill version from publish result. |
+| `quote-id` | Broker quote identifier. |
+| `job-id` | Publish job identifier. |
+| `directory-topic-id` | Skill directory topic ID. |
+| `package-topic-id` | Skill package topic ID. |
+| `skill-json-hrl` | HCS-1 HRL for `skill.json`. |
+| `credits` | Credits consumed. |
+| `estimated-cost-hbar` | Estimated HBAR cost from quote. |
+| `annotation-target` | Annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
+| `result-json` | Full result payload as JSON string. |
 
-## Behavior
+## Example: Gate Follow-up Jobs on Publish State
 
-The action:
+```yaml
+- name: Publish skill
+  id: publish_skill
+  uses: hashgraph-online/skill-publish@v1
+  with:
+    api-key: ${{ secrets.RB_API_KEY }}
+    skill-dir: skills/my-skill
 
-1. Validates package files and `/skills/config` constraints.
-2. Checks whether the exact `name@version` already exists and skips publish when it does.
-3. Calls `POST /skills/quote` when publish is needed.
-4. Calls `POST /skills/publish`.
-5. Polls `GET /skills/jobs/{jobId}` until completion.
-6. Stamps `repo` and `commit` metadata in `skill.json` payload by default.
-7. Appends publish result details to release notes (release events) or merged PR comments (push to `main`) when annotation is enabled.
+- name: Notify only when new version published
+  if: steps.publish_skill.outputs.published == 'true'
+  run: |
+    echo "Published ${{
+      steps.publish_skill.outputs.skill-name
+    }}@${{
+      steps.publish_skill.outputs.skill-version
+    }}"
+```
 
-## Cite this repository
+## Runtime Behavior
 
-If you reference this project in docs or research, use [`CITATION.cff`](./CITATION.cff).
+1. Discovers and validates package files in `skill-dir`.
+2. Resolves broker limits from `/skills/config`.
+3. Checks if `name@version` already exists (skip-safe).
+4. Requests quote via `POST /skills/quote`.
+5. Publishes via `POST /skills/publish`.
+6. Polls `GET /skills/jobs/{jobId}` until completion.
+7. Emits outputs, step summary, and optional GitHub annotations.
+
+## Permissions and Security
+
+- Recommended minimum permissions:
+  - `contents: write` for release note updates
+  - `pull-requests: write` and `issues: write` for PR annotation path
+- Store `RB_API_KEY` in repository or organization secrets.
+- If you do not need GitHub annotations, set `annotate: "false"` and omit `github-token`.
+- For strict supply-chain pinning, you can pin to a full commit SHA instead of `@v1`.
+
+## Troubleshooting
+
+- **`version-exists` skip**: expected for re-runs of an already published version.
+- **quote/publish failures**: inspect `result-json` and step summary first.
+- **timeout**: increase `poll-timeout-ms` for high-load periods.
+- **annotation failure**: publish can still succeed; see `annotation-target` and step logs.
+
+## Canonical References
+
+- Marketplace listing: https://github.com/marketplace/actions/skill-publish
+- Registry landing page: https://hol.org/registry
+- Skill index: https://hol.org/registry/skills
+- Product docs: https://hol.org/docs/registry-broker/
+- Interactive API docs: https://hol.org/registry/docs
+- OpenAPI: https://hol.org/registry/api/v1/openapi.json
+- Skill schema: https://raw.githubusercontent.com/hashgraph-online/skill-publish/main/schemas/skill.schema.json
+
+## Citation
+
+If you reference this action in documentation or research, use [`CITATION.cff`](./CITATION.cff).

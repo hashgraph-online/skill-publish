@@ -490,6 +490,8 @@ const run = async () => {
     const markdown = buildPublishMarkdown(result);
     await appendStepSummary(markdown);
 
+    await setActionOutput('published', 'false');
+    await setActionOutput('skip-reason', result.skippedReason);
     await setActionOutput('skill-name', result.skillName);
     await setActionOutput('skill-version', result.skillVersion);
     await setActionOutput('quote-id', '');
@@ -497,6 +499,8 @@ const run = async () => {
     await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
     await setActionOutput('package-topic-id', result.packageTopicId ?? '');
     await setActionOutput('skill-json-hrl', result.skillJsonHrl ?? '');
+    await setActionOutput('credits', '0');
+    await setActionOutput('estimated-cost-hbar', '0');
     await setActionOutput('annotation-target', 'none');
     await setActionOutput('result-json', JSON.stringify(result, null, 2));
 
@@ -639,6 +643,8 @@ const run = async () => {
 
   await appendStepSummary(markdown);
 
+  await setActionOutput('published', 'true');
+  await setActionOutput('skip-reason', '');
   await setActionOutput('skill-name', result.skillName);
   await setActionOutput('skill-version', result.skillVersion);
   await setActionOutput('quote-id', result.quoteId);
@@ -646,6 +652,8 @@ const run = async () => {
   await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
   await setActionOutput('package-topic-id', result.packageTopicId ?? '');
   await setActionOutput('skill-json-hrl', result.skillJsonHrl ?? '');
+  await setActionOutput('credits', String(result.credits ?? 0));
+  await setActionOutput('estimated-cost-hbar', String(result.estimatedCostHbar ?? ''));
   await setActionOutput('annotation-target', annotationTarget);
   await setActionOutput('result-json', JSON.stringify(result, null, 2));
 

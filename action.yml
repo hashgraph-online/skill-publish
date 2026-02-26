@@ -1,5 +1,5 @@
 name: "skill-publish"
-description: "Validate, quote, publish, and poll HCS-26 skill releases via Registry Broker"
+description: "Idempotent HCS-26 skill release pipeline: validate, quote, publish, poll, and annotate GitHub"
 author: "Hashgraph Online"
 branding:
   icon: "upload-cloud"
@@ -44,6 +44,12 @@ inputs:
     description: "GitHub token used for release or PR annotations"
     required: false
 outputs:
+  published:
+    description: "Whether a publish operation executed (false when skipped because version already exists)"
+    value: ${{ steps.publish.outputs.published }}
+  skip-reason:
+    description: "Reason the action skipped publishing"
+    value: ${{ steps.publish.outputs.skip-reason }}
   skill-name:
     description: "Published skill name"
     value: ${{ steps.publish.outputs.skill-name }}
@@ -65,6 +71,12 @@ outputs:
   skill-json-hrl:
     description: "HCS-1 HRL for skill.json"
     value: ${{ steps.publish.outputs.skill-json-hrl }}
+  credits:
+    description: "Credits consumed for the publish"
+    value: ${{ steps.publish.outputs.credits }}
+  estimated-cost-hbar:
+    description: "Estimated HBAR quoted for the publish"
+    value: ${{ steps.publish.outputs.estimated-cost-hbar }}
   result-json:
     description: "Raw result JSON payload"
     value: ${{ steps.publish.outputs.result-json }}
