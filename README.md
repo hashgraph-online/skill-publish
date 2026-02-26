@@ -1,6 +1,14 @@
 # skill-publish
 
-`skill-publish` is a GitHub Action that publishes a skill package from CI and returns stable references you can share.
+`skill-publish` is a GitHub Action that publishes **trustless, immutable, on-chain** skill releases and returns canonical references you can pin, verify, and re-fetch later.
+
+Instead of sharing mutable URLs or copy/paste blobs, each `name@version` release is recorded on Hedera (HCS) and exposed via `hcs://...` references. That immutability is the value: the published artifact is tamper-evident, reproducible, and audit-friendly.
+
+Immutability gives you:
+
+- **Version pinning:** consumers can depend on an exact `name@version`.
+- **Reproducible retrieval:** the same canonical references resolve later (not “whatever is at this URL today”).
+- **Audit trail:** topic IDs, job IDs, and optional repo+commit stamping connect releases back to source.
 
 A skill package is `SKILL.md` + `skill.json` (plus optional files). The action validates, quotes, publishes, waits for completion, and emits outputs.
 

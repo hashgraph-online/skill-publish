@@ -1,5 +1,5 @@
 name: "skill-publish"
-description: "Publish skill packages without custom quote/publish/poll scripts"
+description: "Publish trustless, immutable, on-chain skill releases and return canonical references"
 author: "Hashgraph Online"
 branding:
   icon: "upload-cloud"
