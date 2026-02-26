@@ -1,5 +1,5 @@
 name: "skill-publish"
-description: "Publish HCS-26 skills without custom quote/publish/poll scripts"
+description: "Publish skill packages without custom quote/publish/poll scripts"
 author: "Hashgraph Online"
 branding:
   icon: "upload-cloud"

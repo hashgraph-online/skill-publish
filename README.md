@@ -1,8 +1,8 @@
 # skill-publish
 
-`skill-publish` is the GitHub Action for shipping **HCS-26 skill releases** to the Hashgraph Online Registry Broker with one workflow step.
+`skill-publish` is a GitHub Action for publishing skill packages from CI.
 
-If you are building skills and do not want to hand-roll publish orchestration, this action handles the release path:
+If your repo contains `SKILL.md` and `skill.json`, this action handles the release workflow:
 
 - validate package against broker limits
 - quote credits
@@ -14,18 +14,6 @@ If you are building skills and do not want to hand-roll publish orchestration, t
 [![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-skill--publish-2EA44F?style=for-the-badge&logo=github)](https://github.com/marketplace/actions/skill-publish)
 [![OpenAPI Spec](https://img.shields.io/badge/OpenAPI-3.1.0-6BA539?style=for-the-badge&logo=openapiinitiative&logoColor=white)](https://hol.org/registry/api/v1/openapi.json)
 [![HOL Registry](https://img.shields.io/badge/HOL-Registry-5599FE?style=for-the-badge)](https://hol.org/registry)
-
-## HCS-26 in 60 Seconds
-
-You can use this action without being deep in the spec.
-
-- A skill package includes `SKILL.md` and `skill.json`.
-- HCS-26 stores package files and publishes registry records for discovery/versioning.
-- The Registry Broker exposes this as API endpoints (`/skills/config`, `/skills/quote`, `/skills/publish`, `/skills/jobs/{id}`).
-- This action is a thin automation layer over those endpoints.
-
-If you want the full standard details, see:
-- https://github.com/hashgraph-online/hiero-consensus-specifications/blob/main/docs/standards/hcs-26.md
 
 ## Developer Value
 
@@ -66,7 +54,7 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
-      - name: Publish to HCS-26 registry
+      - name: Publish skill package
         uses: hashgraph-online/skill-publish@v1
         with:
           api-key: ${{ secrets.RB_API_KEY }}
@@ -92,6 +80,17 @@ Example `skill.json`:
   "description": "Example skill package"
 }
 ```
+
+## Under the Hood (HCS-26)
+
+You do not need to know the full standard to use this action, but this is what it maps to:
+
+- package files are validated and prepared for HCS-26 publishing
+- broker endpoints handle quote, publish, and job polling
+- outputs expose the resulting topic IDs and HRL references
+
+Full standard:
+- https://github.com/hashgraph-online/hiero-consensus-specifications/blob/main/docs/standards/hcs-26.md
 
 ## Inputs
 
