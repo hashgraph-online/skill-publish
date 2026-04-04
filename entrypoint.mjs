@@ -53,6 +53,7 @@ const RETRYABLE_ERROR_MARKERS = [
 const INTEGER_VERSION_PATTERN = /^\d+$/;
 const SEMVER_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/;
 const SEMVER_PRERELEASE_PATTERN = /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+(?:\+[0-9A-Za-z.-]+)?$/;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 const getEnv = (name, fallback = '') => {
   const value = process.env[name];
@@ -211,24 +212,24 @@ const isRetryableRequestError = (error) => {
   return RETRYABLE_ERROR_MARKERS.some((marker) => message.includes(marker));
 };
 
-const requestJson = async (params) => {
-  const {
-    method,
-    url,
-    apiKey,
-    body,
-    signal,
-  } = params;
+const requestJsonWithHeaders = async (params) => {
+  const { method, url, headers, body, signal, timeoutMs } = params;
+  const controller = signal ? null : new AbortController();
+  const activeSignal = signal ?? controller?.signal;
+  const timer = controller
+    ? setTimeout(() => {
+        controller.abort(
+          new Error(`Request timed out after ${timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS}ms`),
+        );
+      }, timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
+    : null;
   let response;
   try {
     response = await fetch(url, {
       method,
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-      },
+      headers,
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal,
+      signal: activeSignal,
     });
   } catch (error) {
     throw new ActionError(
@@ -237,6 +238,10 @@ const requestJson = async (params) => {
         code: extractErrorCode(error),
       },
     );
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
   if (!response.ok) {
     const bodySummary = await summarizeErrorBody(response);
@@ -250,37 +255,34 @@ const requestJson = async (params) => {
   return response.json();
 };
 
+const requestJson = async (params) => {
+  const { method, url, apiKey, body, signal, timeoutMs } = params;
+  return requestJsonWithHeaders({
+    method,
+    url,
+    body,
+    signal,
+    timeoutMs,
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+    },
+  });
+};
+
 const requestBearerJson = async (params) => {
-  const { method, url, token, body, signal } = params;
-  let response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body ? { 'content-type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal,
-    });
-  } catch (error) {
-    throw new ActionError(
-      `${method} ${url} failed: ${error instanceof Error ? error.message : String(error)}`,
-      {
-        code: extractErrorCode(error),
-      },
-    );
-  }
-  if (!response.ok) {
-    const bodySummary = await summarizeErrorBody(response);
-    throw new ActionError(
-      `${method} ${url} failed with ${response.status}${bodySummary ? `: ${bodySummary}` : ''}`,
-      {
-        statusCode: response.status,
-      },
-    );
-  }
-  return response.json();
+  const { method, url, token, body, signal, timeoutMs } = params;
+  return requestJsonWithHeaders({
+    method,
+    url,
+    body,
+    signal,
+    timeoutMs,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body ? { 'content-type': 'application/json' } : {}),
+    },
+  });
 };
 
 const requestJsonWithRetry = async (params) => {
@@ -467,6 +469,7 @@ const getGitHubOidcToken = async () => {
     url: requestUrl,
     token: requestToken,
     attempts: 3,
+    timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
   });
   const token = typeof response?.value === 'string' ? response.value.trim() : '';
   if (!token) {
@@ -486,6 +489,7 @@ const uploadPreviewReport = async (params) => {
     token: oidcToken,
     body: params.report,
     attempts: 3,
+    timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
   });
 };
 
