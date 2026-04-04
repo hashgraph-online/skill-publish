@@ -58,9 +58,12 @@
     "picocolors": "^1.1.1"
   },
   "scripts": {
-    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs && node --check bin/lib/broker-api.mjs && node --check bin/lib/create-command.mjs && node --check bin/lib/credential-store.mjs && node --check bin/lib/setup-command.mjs && node --check bin/lib/account-commands.mjs && node --check bin/lib/local-commands.mjs && node --check bin/lib/doctor-command.mjs && node --check bin/lib/start-command.mjs && node --check bin/lib/cli-help.mjs && node --check bin/lib/repo-commands.mjs && node --check bin/lib/package-files.mjs && node --check bin/lib/skill-package.mjs && node --check bin/lib/skill-presets.mjs && node --check bin/lib/distribution-kit.mjs && node --check bin/lib/distribution-commands.mjs && node --check bin/lib/codemeta.mjs && node --check bin/lib/indexnow.mjs && node --check bin/lib/apply-distribution-kit.mjs && node --check test/cli-contract.test.mjs",
+    "lint": "node --check entrypoint.mjs && node --check bin/cli.mjs && node --check bin/lib/broker-api.mjs && node --check bin/lib/create-command.mjs && node --check bin/lib/credential-store.mjs && node --check bin/lib/setup-command.mjs && node --check bin/lib/account-commands.mjs && node --check bin/lib/local-commands.mjs && node --check bin/lib/doctor-command.mjs && node --check bin/lib/start-command.mjs && node --check bin/lib/cli-help.mjs && node --check bin/lib/repo-commands.mjs && node --check bin/lib/package-files.mjs && node --check bin/lib/skill-package.mjs && node --check bin/lib/skill-presets.mjs && node --check bin/lib/distribution-kit.mjs && node --check bin/lib/distribution-commands.mjs && node --check bin/lib/codemeta.mjs && node --check bin/lib/indexnow.mjs && node --check bin/lib/apply-distribution-kit.mjs && node --check bin/lib/preview-report.mjs && node --check bin/lib/preview-output.mjs && node --check test/cli-contract.test.mjs && node --check test/validate-preview.test.mjs && node --check test/readme-contract.test.mjs && node --check test/repo-workflows.test.mjs",
     "test:package-files": "node test/package-files.test.mjs",
     "test:cli-contract": "node test/cli-contract.test.mjs",
+    "test:validate-preview": "node test/validate-preview.test.mjs",
+    "test:readme-contract": "node test/readme-contract.test.mjs",
+    "test:repo-workflows": "node test/repo-workflows.test.mjs",
     "smoke:help": "node bin/cli.mjs --help",
     "smoke:start": "node bin/cli.mjs start --non-interactive",
     "smoke:doctor": "node bin/cli.mjs doctor --json",

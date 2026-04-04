@@ -198,6 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - name: Validate skill package
@@ -293,11 +294,12 @@ async function writeRepoReadme(repoDir, skillName, skillDir) {
 
 This repository contains an HCS-26 skill package and CI publishing workflow powered by \`skill-publish\`.
 
-## Publish flow
+## Validate-first flow
 
-1. Add \`RB_API_KEY\` as a GitHub repository secret.
-2. Update files under \`${skillDir}\`.
-3. Create a GitHub release to trigger publish.
+1. Open a pull request to run validate-only CI first.
+2. Update files under \`${skillDir}\` until validation passes.
+3. Add \`RB_API_KEY\` only when you are ready to quote and publish immutable releases.
+4. Create a GitHub release to trigger publish.
 `;
 
   await writeFile(readmePath, `${readme}\n`, 'utf8');

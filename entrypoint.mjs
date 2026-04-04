@@ -3,6 +3,8 @@ import path from 'node:path';
 import { buildDistributionKit, normalizeApiBaseUrl } from './bin/lib/distribution-kit.mjs';
 import { submitToIndexNow } from './bin/lib/indexnow.mjs';
 import { discoverSkillPackageFiles } from './bin/lib/package-files.mjs';
+import { buildSkillPreviewReport, formatPreviewNextActions } from './bin/lib/preview-report.mjs';
+import { writeSkillPreviewReport } from './bin/lib/preview-output.mjs';
 
 const stdout = (message) => process.stdout.write(`${message}\n`);
 const stderr = (message) => process.stderr.write(`${message}\n`);
@@ -248,6 +250,39 @@ const requestJson = async (params) => {
   return response.json();
 };
 
+const requestBearerJson = async (params) => {
+  const { method, url, token, body, signal } = params;
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal,
+    });
+  } catch (error) {
+    throw new ActionError(
+      `${method} ${url} failed: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        code: extractErrorCode(error),
+      },
+    );
+  }
+  if (!response.ok) {
+    const bodySummary = await summarizeErrorBody(response);
+    throw new ActionError(
+      `${method} ${url} failed with ${response.status}${bodySummary ? `: ${bodySummary}` : ''}`,
+      {
+        statusCode: response.status,
+      },
+    );
+  }
+  return response.json();
+};
+
 const requestJsonWithRetry = async (params) => {
   const attempts = Number.isFinite(params.attempts) && params.attempts > 0 ? Math.floor(params.attempts) : 1;
   let lastError = null;
@@ -307,6 +342,19 @@ const parseEventPayload = async () => {
     return JSON.parse(raw);
   } catch {
     return null;
+  }
+};
+
+const readPackageVersion = async () => {
+  const packageJsonPath = path.join(process.cwd(), 'package.json');
+  try {
+    const raw = await readFile(packageJsonPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.version === 'string' && parsed.version.trim()
+      ? parsed.version.trim()
+      : '0.0.0';
+  } catch {
+    return '0.0.0';
   }
 };
 
@@ -372,6 +420,50 @@ const setDistributionOutputs = async (distribution) => {
   );
   await setActionOutput('attested-kit-json', JSON.stringify(distribution, null, 2));
   await setActionOutput('next-actions', distribution.snippets.nextActions);
+};
+
+const getWorkflowRunUrl = () => {
+  const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
+  const repository = getEnv('GITHUB_REPOSITORY');
+  const runId = getEnv('GITHUB_RUN_ID');
+  if (!repository) {
+    return '';
+  }
+  if (runId) {
+    return `${serverUrl}/${repository}/actions/runs/${runId}`;
+  }
+  return `${serverUrl}/${repository}/actions`;
+};
+
+const getGitHubOidcToken = async () => {
+  const requestUrl = getEnv('ACTIONS_ID_TOKEN_REQUEST_URL');
+  const requestToken = getEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
+  if (!requestUrl || !requestToken) {
+    return '';
+  }
+  const response = await requestBearerJson({
+    method: 'GET',
+    url: requestUrl,
+    token: requestToken,
+  });
+  const token = typeof response?.value === 'string' ? response.value.trim() : '';
+  if (!token) {
+    throw new ActionError('GitHub OIDC token response did not include a token value.');
+  }
+  return token;
+};
+
+const uploadPreviewReport = async (params) => {
+  const oidcToken = await getGitHubOidcToken();
+  if (!oidcToken) {
+    return null;
+  }
+  return requestBearerJson({
+    method: 'POST',
+    url: buildApiUrl(params.apiBaseUrl, '/skills/preview/github-oidc'),
+    token: oidcToken,
+    body: params.report,
+  });
 };
 
 const maybeSubmitIndexNow = async (distribution, enabled) => {
@@ -538,6 +630,7 @@ const run = async () => {
   const pollTimeoutMs = parseNumber(getEnv('INPUT_POLL_TIMEOUT_MS'), 720000);
   const pollIntervalMs = parseNumber(getEnv('INPUT_POLL_INTERVAL_MS'), 4000);
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
+  const shouldUploadPreview = toBoolean(getEnv('INPUT_PREVIEW_UPLOAD'), true);
   const shouldSubmitIndexNow = toBoolean(getEnv('INPUT_SUBMIT_INDEXNOW'), false);
   const githubToken = getEnv('INPUT_GITHUB_TOKEN');
   const mode = String(getEnv('INPUT_MODE', 'publish')).trim().toLowerCase() || 'publish';
@@ -595,6 +688,8 @@ const run = async () => {
   const repository = getEnv('GITHUB_REPOSITORY');
   const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
   const commitSha = getEnv('GITHUB_SHA');
+  const gitRef = getEnv('GITHUB_REF');
+  const eventName = getEnv('GITHUB_EVENT_NAME');
   const repoUrl = repository ? `${serverUrl}/${repository}` : '';
 
   if (stampRepoCommit) {
@@ -697,6 +792,9 @@ const run = async () => {
       await setActionOutput('skip-reason', result.skippedReason);
       await setActionOutput('skill-name', result.skillName);
       await setActionOutput('skill-version', result.skillVersion);
+      await setActionOutput('preview-json', '');
+      await setActionOutput('preview-json-path', '');
+      await setActionOutput('status-url', result.distribution.urls.skillPageUrl);
       await setActionOutput('quote-id', '');
       await setActionOutput('job-id', '');
       await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
@@ -748,6 +846,7 @@ const run = async () => {
 
   let totalBytes = 0;
   const files = [];
+  const previewFiles = [];
   const rewrittenSkillJsonBuffer = Buffer.from(`${JSON.stringify(parsedSkillJson, null, 2)}\n`, 'utf8');
   for (const file of discoveredFiles) {
     const bodyBuffer =
@@ -764,6 +863,12 @@ const run = async () => {
       base64: bodyBuffer.toString('base64'),
       mimeType,
       role: resolveRole(file.relativePath),
+    });
+    previewFiles.push({
+      name: file.relativePath,
+      mimeType,
+      role: resolveRole(file.relativePath),
+      sizeBytes: bodyBuffer.byteLength,
     });
   }
 
@@ -792,11 +897,47 @@ const run = async () => {
 
   if (mode === 'validate') {
     const distribution = buildDistribution(apiBaseUrl, skillName, skillVersion, parsedSkillJson);
+    const previewReport = buildSkillPreviewReport({
+      toolVersion: await readPackageVersion(),
+      repository,
+      repoUrl,
+      commitSha,
+      ref: gitRef,
+      eventName,
+      workflowRunUrl: getWorkflowRunUrl(),
+      skillDir: skillDirInput,
+      skillName,
+      skillVersion,
+      generatedAt: new Date().toISOString(),
+      eventPayload: await parseEventPayload(),
+      files: previewFiles,
+      excludedFiles,
+      totalBytes,
+    });
+    const previewJsonPath = await writeSkillPreviewReport({
+      workspaceDir: process.cwd(),
+      report: previewReport,
+    });
+    const uploadedPreview =
+      shouldUploadPreview && getEnv('GITHUB_ACTIONS') !== 'false'
+        ? await uploadPreviewReport({
+            apiBaseUrl,
+            report: previewReport,
+          }).catch((error) => {
+            stderr(
+              `Preview upload failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            throw error;
+          })
+        : null;
     validationResult.distribution = distribution;
     await setActionOutput('published', 'false');
     await setActionOutput('skip-reason', 'validation-only');
     await setActionOutput('skill-name', skillName);
     await setActionOutput('skill-version', skillVersion);
+    await setActionOutput('preview-json', JSON.stringify(previewReport, null, 2));
+    await setActionOutput('preview-json-path', previewJsonPath);
+    await setActionOutput('status-url', uploadedPreview?.statusUrl ?? '');
     await setActionOutput('quote-id', '');
     await setActionOutput('job-id', '');
     await setActionOutput('directory-topic-id', '');
@@ -807,9 +948,17 @@ const run = async () => {
     await setActionOutput('annotation-target', 'none');
     await setActionOutput('indexnow-result', '');
     await setDistributionOutputs(distribution);
+    await setActionOutput('next-actions', formatPreviewNextActions(previewReport));
     await setActionOutput('result-json', JSON.stringify(validationResult, null, 2));
     if (jsonOutput) {
-      printJson(validationResult);
+      printJson({
+        ...validationResult,
+        preview: {
+          report: previewReport,
+          path: previewJsonPath,
+          statusUrl: uploadedPreview?.statusUrl ?? '',
+        },
+      });
     } else {
       stdout(`Validation complete for ${skillName}@${skillVersion}.`);
     }
@@ -853,6 +1002,9 @@ const run = async () => {
     await setActionOutput('skip-reason', 'quote-only');
     await setActionOutput('skill-name', skillName);
     await setActionOutput('skill-version', skillVersion);
+    await setActionOutput('preview-json', '');
+    await setActionOutput('preview-json-path', '');
+    await setActionOutput('status-url', distribution.urls.skillPageUrl);
     await setActionOutput('quote-id', quoteId);
     await setActionOutput('job-id', '');
     await setActionOutput('directory-topic-id', '');
@@ -961,6 +1113,9 @@ const run = async () => {
   await setActionOutput('skip-reason', '');
   await setActionOutput('skill-name', result.skillName);
   await setActionOutput('skill-version', result.skillVersion);
+  await setActionOutput('preview-json', '');
+  await setActionOutput('preview-json-path', '');
+  await setActionOutput('status-url', result.distribution.urls.skillPageUrl);
   await setActionOutput('quote-id', result.quoteId);
   await setActionOutput('job-id', result.jobId);
   await setActionOutput('directory-topic-id', result.directoryTopicId ?? '');
@@ -996,6 +1151,9 @@ run().catch(async error => {
   stderr(`Error: ${message}`);
   const outputPath = getEnv('GITHUB_OUTPUT');
   if (outputPath) {
+    await setActionOutput('preview-json', '');
+    await setActionOutput('preview-json-path', '');
+    await setActionOutput('status-url', '');
     await setActionOutput('annotation-target', 'failed');
   }
   process.exit(1);
