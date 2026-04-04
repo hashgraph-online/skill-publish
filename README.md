@@ -53,7 +53,7 @@ jobs:
 
 ### GitHub Action (release publishing)
 
-Publishing immutable releases still consumes HOL Registry Broker credits. Add `RB_API_KEY` only when you are ready to quote and publish on-chain:
+Publishing immutable releases still consumes HOL Registry Broker credits. Add `RB_API_KEY` only when you are ready to request an authenticated quote and then publish on-chain:
 
 ```yaml
 name: Publish Skill
@@ -209,6 +209,8 @@ npx skill-publish validate ./skills/my-skill
 npx skill-publish quote ./skills/my-skill
 npx skill-publish publish ./skills/my-skill
 ```
+
+`quote` requires broker authentication, and `publish` requires both broker authentication and funded credits because the release is written on-chain.
 
 `publish` remains the default command, so legacy flag-only usage still works:
 

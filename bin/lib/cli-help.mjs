@@ -71,8 +71,8 @@ Getting Started:
 Core Commands:
   init [dir]          Scaffold SKILL.md + skill.json
   validate [dir]      Validate a skill package locally
-  quote [dir]         Validate package and fetch publish quote
-  publish [dir]       Validate, quote, and publish a skill package
+  quote [dir]         Validate package and fetch an authenticated publish quote
+  publish [dir]       Validate, quote, and publish a credit-funded skill release
   help [command]      Show help for a command
 
 Examples:

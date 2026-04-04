@@ -324,7 +324,7 @@ async function runPublishCommand(options, positionals) {
 
   if (!options['api-key']) {
     fail(
-      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>`.',
+      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>`. Publish also requires funded broker credits because the release is inscribed on-chain.',
       'publish',
     );
   }
@@ -342,7 +342,7 @@ async function runQuoteCommand(options, positionals) {
   applyCommonDefaults(options);
   if (!options['api-key']) {
     fail(
-      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>`.',
+      'Missing API key. Pass --api-key, set RB_API_KEY, or run `npx skill-publish setup --account-id <id> --hedera-private-key <key>` before requesting an authenticated publish quote.',
       'quote',
     );
   }
