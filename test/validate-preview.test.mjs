@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { writeSkillPreviewReport } from '../bin/lib/preview-output.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -124,7 +125,23 @@ assert.equal(previewJson.validation_status, 'passed');
 assert.deepEqual(previewJsonOnDisk, previewJson);
 assert.equal(githubOutput.get('status-url'), '');
 
+const traversalRuntimeRoot = await mkdtemp(path.join(repoRoot, 'test-runtime-'));
+const traversalPath = await writeSkillPreviewReport({
+  workspaceDir: traversalRuntimeRoot,
+  report: {
+    ...previewJson,
+    name: '../SeCrEt',
+    version: '..1.0.0',
+  },
+});
+assert.ok(
+  traversalPath.startsWith(path.join(traversalRuntimeRoot, '.hol', 'previews')),
+);
+assert.equal(path.basename(traversalPath).includes('..'), false);
+await rm(traversalRuntimeRoot, { recursive: true, force: true });
+
 const previewUploadRequests = [];
+let oidcAttempts = 0;
 const oidcServer = await listenServer(async (request, response) => {
   const body = await new Promise((resolve) => {
     let chunks = '';
@@ -136,7 +153,13 @@ const oidcServer = await listenServer(async (request, response) => {
   });
 
   if (request.url?.startsWith('/oidc')) {
+    oidcAttempts += 1;
     assert.equal(request.headers.authorization, 'Bearer broker-test-token');
+    if (oidcAttempts === 1) {
+      response.writeHead(502, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'temporary upstream issue' }));
+      return;
+    }
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ value: 'github-oidc-token' }));
     return;
@@ -179,6 +202,49 @@ assert.equal(previewUploadRequests.length, 1);
 assert.equal(previewUploadRequests[0].authorization, 'Bearer github-oidc-token');
 assert.equal(previewUploadRequests[0].body.name, 'valid-skill');
 
+const failedUploadServer = await listenServer(async (request, response) => {
+  const body = await new Promise((resolve) => {
+    let chunks = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      chunks += chunk;
+    });
+    request.on('end', () => resolve(chunks));
+  });
+
+  if (request.url?.startsWith('/oidc')) {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ value: 'github-oidc-token' }));
+    return;
+  }
+
+  if (request.url === '/api/v1/skills/preview/github-oidc') {
+    response.writeHead(503, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'preview store unavailable', body }));
+    return;
+  }
+
+  response.writeHead(404, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({ error: 'not found' }));
+});
+
+const failedUploadRun = await runValidate('valid-skill', {
+  apiBaseUrl: `${failedUploadServer.baseUrl}/api/v1`,
+  extraEnv: {
+    ACTIONS_ID_TOKEN_REQUEST_URL: `${failedUploadServer.baseUrl}/oidc`,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'broker-test-token',
+  },
+});
+assert.equal(
+  failedUploadRun.error,
+  undefined,
+  failedUploadRun.error?.stderr ?? failedUploadRun.error?.message,
+);
+const failedUploadOutput = parseGithubOutput(
+  await readFile(failedUploadRun.githubOutputPath, 'utf8'),
+);
+assert.equal(failedUploadOutput.get('status-url'), '');
+
 const missingSkillMdRun = await runValidate('missing-skill-md');
 assert.ok(missingSkillMdRun.error);
 assert.match(
@@ -203,6 +269,8 @@ assert.match(
 await rm(validRun.runtimeRoot, { recursive: true, force: true });
 await oidcServer.close();
 await rm(uploadedRun.runtimeRoot, { recursive: true, force: true });
+await failedUploadServer.close();
+await rm(failedUploadRun.runtimeRoot, { recursive: true, force: true });
 if (missingSkillMdRun.runtimeRoot) {
   await rm(missingSkillMdRun.runtimeRoot, { recursive: true, force: true });
 }

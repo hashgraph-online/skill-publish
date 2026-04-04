@@ -2,14 +2,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 function sanitizeSegment(value) {
-  return (
-    String(value ?? '')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/gu, '-')
-      .replace(/^-+/u, '')
-      .replace(/-+$/u, '') || 'unknown'
-  );
+  const sanitized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/gu, '-')
+    .replace(/-+/gu, '-')
+    .replace(/^-+/u, '')
+    .replace(/-+$/u, '');
+  return sanitized || 'unknown';
 }
 
 export async function writeSkillPreviewReport(params) {

@@ -304,6 +304,27 @@ const requestJsonWithRetry = async (params) => {
   throw lastError instanceof Error ? lastError : new ActionError('Request failed');
 };
 
+const requestBearerJsonWithRetry = async (params) => {
+  const attempts = Number.isFinite(params.attempts) && params.attempts > 0 ? Math.floor(params.attempts) : 1;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await requestBearerJson(params);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableRequestError(error)) {
+        throw error;
+      }
+      const delayMs = Math.min(10_000, 1_000 * attempt);
+      stderr(
+        `Transient bearer request failure on ${params.method} ${params.url}; retrying in ${delayMs}ms (retry ${attempt}/${attempts - 1}).`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new ActionError('Request failed');
+};
+
 const findExistingSkillVersion = async (params) => {
   const { apiBaseUrl, apiKey, name, version } = params;
   const response = await requestJsonWithRetry({
@@ -441,10 +462,11 @@ const getGitHubOidcToken = async () => {
   if (!requestUrl || !requestToken) {
     return '';
   }
-  const response = await requestBearerJson({
+  const response = await requestBearerJsonWithRetry({
     method: 'GET',
     url: requestUrl,
     token: requestToken,
+    attempts: 3,
   });
   const token = typeof response?.value === 'string' ? response.value.trim() : '';
   if (!token) {
@@ -458,11 +480,12 @@ const uploadPreviewReport = async (params) => {
   if (!oidcToken) {
     return null;
   }
-  return requestBearerJson({
+  return requestBearerJsonWithRetry({
     method: 'POST',
     url: buildApiUrl(params.apiBaseUrl, '/skills/preview/github-oidc'),
     token: oidcToken,
     body: params.report,
+    attempts: 3,
   });
 };
 
@@ -927,7 +950,7 @@ const run = async () => {
             stderr(
               `Preview upload failed: ${error instanceof Error ? error.message : String(error)}`,
             );
-            throw error;
+            return null;
           })
         : null;
     validationResult.distribution = distribution;
