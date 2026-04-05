@@ -80,6 +80,10 @@ try {
     path.join(scaffoldRepoDir, 'README.md'),
     'utf8',
   );
+  const releaseWorkflow = await readFile(
+    path.join(repoRoot, '.github', 'workflows', 'release.yml'),
+    'utf8',
+  );
   assert.equal(
     scaffoldedValidateWorkflow.includes('id-token: write'),
     true,
@@ -94,6 +98,16 @@ try {
     scaffoldedReadme.includes('Add `RB_API_KEY` only when you are ready to quote and publish immutable releases.'),
     true,
     'Scaffolded repo README must keep publish credit/auth setup separate from validate-first setup.',
+  );
+  assert.equal(
+    releaseWorkflow.includes("tags:\n      - 'v*.*.*'"),
+    true,
+    'Release workflow must only react to semver tags.',
+  );
+  assert.equal(
+    releaseWorkflow.includes('Publish package from main release workflow'),
+    true,
+    'Release workflow must publish npm from the main release path instead of relying on a workflow-triggered tag push.',
   );
 } finally {
   await rm(runtimeRoot, { recursive: true, force: true });

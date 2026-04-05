@@ -1,6 +1,6 @@
 {
   "name": "skill-publish",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Publish trustless, immutable, on-chain skill releases via the HOL Registry Broker.",
   "type": "module",
   "homepage": "https://hol.org/registry/skills/publish",
