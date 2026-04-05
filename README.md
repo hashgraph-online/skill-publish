@@ -1,5 +1,8 @@
 # skill-publish
 
+| ![](https://raw.githubusercontent.com/hashgraph-online/standards-sdk/main/Hashgraph-Online.png) | The official HOL CLI and GitHub Action for validating, quoting, and publishing trustless, immutable, on-chain skill releases through the HOL Registry Broker.<br><br>Built and maintained by [Hashgraph Online](https://hol.org).<br><br>[npm Package](https://www.npmjs.com/package/skill-publish)<br>[GitHub Marketplace](https://github.com/marketplace/actions/skill-publish)<br>[HOL Registry](https://hol.org/registry) |
+| :--- | :--- |
+
 `skill-publish` is the official CLI and GitHub Action for publishing **trustless, immutable, on-chain** skill releases through the HOL Registry Broker.
 
 Instead of sharing mutable URLs or copy/paste blobs, each `name@version` release is recorded on Hedera (HCS) and exposed via `hcs://...` references. That immutability is the value: the published artifact is tamper-evident, reproducible, and audit-friendly.

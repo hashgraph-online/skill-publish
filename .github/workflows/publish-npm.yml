@@ -1,6 +1,9 @@
 name: Publish NPM Package
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
