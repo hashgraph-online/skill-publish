@@ -5,11 +5,12 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - 'v*.*.*'
   workflow_dispatch:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -33,6 +34,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
 
       - name: Determine release target
         id: meta
@@ -69,8 +71,8 @@ jobs:
           git tag "${{ steps.meta.outputs.tag }}" "${GITHUB_SHA}"
           git push origin "refs/tags/${{ steps.meta.outputs.tag }}"
 
-      - name: Repair GitHub release when tag exists without release
-        if: steps.meta.outputs.tag_exists == 'true' && steps.meta.outputs.release_exists != 'true'
+      - name: Ensure GitHub release exists for current package version
+        if: steps.meta.outputs.release_exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -100,9 +102,39 @@ jobs:
 
           rm -f "${notes_file}"
 
-      - name: Skip release repair when release already exists
+      - name: Skip release creation when release already exists
         if: steps.meta.outputs.release_exists == 'true'
         run: echo "Release ${{ steps.meta.outputs.tag }} already exists."
+
+      - name: Check published npm version
+        id: package-version
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Package ${PACKAGE_NAME}@${PACKAGE_VERSION} is already published. Skipping npm publish."
+            exit 0
+          fi
+          echo "already_published=false" >> "$GITHUB_OUTPUT"
+
+      - name: Verify npm token
+        if: steps.package-version.outputs.already_published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN secret is required."
+            exit 1
+          fi
+
+      - name: Publish package from main release workflow
+        if: steps.package-version.outputs.already_published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
