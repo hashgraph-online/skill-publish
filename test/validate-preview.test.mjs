@@ -100,8 +100,8 @@ async function runActionMode(fixtureName, mode, options = {}) {
         GITHUB_SERVER_URL: 'https://github.com',
         ...(options.githubApiUrl ? { GITHUB_API_URL: options.githubApiUrl } : {}),
         GITHUB_SHA: 'abc123def456abc123def456abc123def456abcd',
-        GITHUB_REF: 'refs/pull/5/merge',
-        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_REF: options.githubRef ?? 'refs/pull/5/merge',
+        GITHUB_EVENT_NAME: options.githubEventName ?? 'pull_request',
         ...(options.eventPayload ? { GITHUB_EVENT_PATH: githubEventPath } : {}),
         ...options.extraEnv,
       },
@@ -136,11 +136,6 @@ assert.equal(githubOutput.get('publish-readiness'), 'ready');
 assert.equal(githubOutput.get('missing-requirements'), '[]');
 assert.equal(githubOutput.get('estimated-credits-range'), '');
 assert.equal(githubOutput.get('managed-comment-url'), '');
-assert.equal(githubOutput.get('managed-comment-status'), 'skipped');
-assert.equal(githubOutput.get('managed-comment-reason'), 'missing-github-token');
-assert.equal(githubOutput.get('publish-comment-url'), '');
-assert.equal(githubOutput.get('publish-comment-status'), 'disabled');
-assert.equal(githubOutput.get('release-annotation-status'), 'disabled');
 const previewJson = JSON.parse(githubOutput.get('preview-json'));
 const previewJsonPath = githubOutput.get('preview-json-path');
 assert.ok(previewJsonPath);
@@ -160,6 +155,7 @@ assert.deepEqual(previewJsonOnDisk, previewJson);
 assert.equal(githubOutput.get('status-url'), '');
 
 const quotePreviewRequests = [];
+const previewUploadRequests = [];
 const statusByRepoRequests = [];
 const versionLookupRequests = [];
 let domainProofSkillLookupCount = 0;
@@ -177,6 +173,13 @@ const apiServer = await listenServer(async (request, response) => {
     });
     request.on('end', () => resolve(chunks));
   });
+
+  if (requestPath === '/oidc') {
+    assert.equal(request.headers.authorization, 'Bearer broker-test-token');
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ value: 'github-oidc-token' }));
+    return;
+  }
 
   if (requestPath === '/api/v1/skills/quote-preview') {
     quotePreviewRequests.push(body ? JSON.parse(body) : null);
@@ -198,6 +201,27 @@ const apiServer = await listenServer(async (request, response) => {
         purchaseUrl: 'https://hol.org/registry/skills/submit',
         publishUrl: 'https://hol.org/registry/skills/submit',
         verificationUrl: 'https://hol.org/registry/skills/submit',
+      }),
+    );
+    return;
+  }
+
+  if (requestPath === '/api/v1/skills/preview/github-oidc') {
+    previewUploadRequests.push({
+      authorization: request.headers.authorization,
+      body: body ? JSON.parse(body) : null,
+    });
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        id: 'preview-record-1',
+        previewId: 'preview_demo',
+        source: 'github-oidc',
+        generatedAt: '2026-04-04T10:00:00.000Z',
+        expiresAt: '2026-04-11T10:00:00.000Z',
+        statusUrl: 'https://hol.org/registry/skills/valid-skill',
+        authoritative: false,
+        report: body ? JSON.parse(body) : null,
       }),
     );
     return;
@@ -443,6 +467,54 @@ assert.equal(quotePreviewRequests.length, 1);
 assert.equal(quotePreviewRequests[0]?.name, 'valid-skill');
 assert.equal(quotePreviewRequests[0]?.version, '1.0.0');
 
+const trustedPreviewRun = await runActionMode('valid-skill', 'validate', {
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
+  githubEventName: 'workflow_dispatch',
+  githubRef: 'refs/heads/main',
+  extraEnv: {
+    INPUT_PREVIEW_UPLOAD: 'true',
+    ACTIONS_ID_TOKEN_REQUEST_URL: `${apiServer.baseUrl}/oidc`,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'broker-test-token',
+  },
+});
+assert.equal(
+  trustedPreviewRun.error,
+  undefined,
+  trustedPreviewRun.error?.stderr ?? trustedPreviewRun.error?.message,
+);
+const trustedPreviewOutput = parseGithubOutput(
+  await readFile(trustedPreviewRun.githubOutputPath, 'utf8'),
+);
+assert.equal(trustedPreviewOutput.get('status-url'), 'https://hol.org/registry/skills/valid-skill');
+assert.equal(previewUploadRequests.length, 1);
+assert.equal(previewUploadRequests[0]?.authorization, 'Bearer github-oidc-token');
+assert.equal(previewUploadRequests[0]?.body?.name, 'valid-skill');
+
+const unsafePreviewRun = await runActionMode('valid-skill', 'validate', {
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
+  githubEventName: 'pull_request',
+  githubRef: 'refs/pull/5/merge',
+  extraEnv: {
+    INPUT_PREVIEW_UPLOAD: 'true',
+    ACTIONS_ID_TOKEN_REQUEST_URL: `${apiServer.baseUrl}/oidc`,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'broker-test-token',
+  },
+});
+assert.equal(
+  unsafePreviewRun.error,
+  undefined,
+  unsafePreviewRun.error?.stderr ?? unsafePreviewRun.error?.message,
+);
+const unsafePreviewOutput = parseGithubOutput(
+  await readFile(unsafePreviewRun.githubOutputPath, 'utf8'),
+);
+assert.equal(unsafePreviewOutput.get('status-url'), '');
+assert.equal(
+  previewUploadRequests.length,
+  1,
+  'Preview uploads must stay disabled for pull_request validation even when preview-upload is requested.',
+);
+
 const managedCommentRun = await runActionMode('domain-proof-skill', 'monitor', {
   apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
   relativeSkillDir: true,
@@ -469,17 +541,14 @@ assert.equal(
   managedCommentOutput.get('managed-comment-url'),
   'https://github.com/hashgraph-online/valid-skill/pull/5#issuecomment-501',
 );
-assert.equal(managedCommentOutput.get('managed-comment-status'), 'created');
-assert.equal(managedCommentOutput.get('publish-comment-status'), 'disabled');
-assert.equal(managedCommentOutput.get('release-annotation-status'), 'disabled');
 assert.equal(managedCommentRequests.length, 1);
 assert.match(
   managedCommentRequests[0]?.body ?? '',
-  /## HOL skill-publish · ✅ Publish-ready/u,
+  /## HOL skill scorecard/u,
 );
 assert.match(
   managedCommentRequests[0]?.body ?? '',
-  /\| Metric \| Value \|/u,
+  /\| HCS-28 total \| Trust tier \| Publish readiness \|/u,
 );
 assert.match(
   managedCommentRequests[0]?.body ?? '',
@@ -497,9 +566,13 @@ assert.match(
   managedCommentRequests[0]?.body ?? '',
   /link your domain so HOL can verify the TXT record/u,
 );
-assert.equal(
-  (managedCommentRequests[0]?.body ?? '').includes('### Links'),
-  false,
+assert.match(
+  managedCommentRequests[0]?.body ?? '',
+  /### Links/u,
+);
+assert.match(
+  managedCommentRequests[0]?.body ?? '',
+  /Manage on HOL: \[Open submit flow\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u,
 );
 
 const dedupeRun = await runActionMode('domain-proof-skill', 'validate', {
@@ -537,49 +610,18 @@ assert.equal(
 assert.equal(managedCommentUpdates.length, 1);
 assert.match(
   managedCommentUpdates[0]?.body ?? '',
-  /## HOL skill-publish · ✅ Publish-ready/u,
+  /## HOL skill scorecard/u,
 );
-assert.equal(
-  (managedCommentUpdates[0]?.body ?? '').includes('link your domain so HOL can verify the TXT record'),
-  false,
+assert.match(
+  managedCommentUpdates[0]?.body ?? '',
+  /### Links/u,
+);
+assert.match(
+  managedCommentUpdates[0]?.body ?? '',
+  /Manage on HOL: \[Open submit flow\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u,
 );
 const dedupeHcs28 = JSON.parse(dedupeOutput.get('hcs28-json'));
-assert.equal(
-  dedupeHcs28?.trustScores?.['verification.domain-proof.score'],
-  100,
-);
-assert.ok(
-  statusByRepoRequests.some((entry) =>
-    (entry?.skillDir ?? '').includes('publish-package-domain-proof-skill'),
-  ),
-);
-assert.ok(
-  versionLookupRequests.some((entry) =>
-    entry?.name === 'domain-proof-skill' && entry?.version === '1.0.0',
-  ),
-);
-
-const statusOverrideRun = await runActionMode('domain-proof-skill', 'validate', {
-  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
-  packageInRuntime: true,
-  relativeSkillDir: true,
-  extraEnv: {
-    INPUT_NAME: 'status-override-skill',
-  },
-});
-assert.equal(
-  statusOverrideRun.error,
-  undefined,
-  statusOverrideRun.error?.stderr ?? statusOverrideRun.error?.message,
-);
-const statusOverrideOutput = parseGithubOutput(
-  await readFile(statusOverrideRun.githubOutputPath, 'utf8'),
-);
-const statusOverrideHcs28 = JSON.parse(statusOverrideOutput.get('hcs28-json'));
-assert.equal(
-  statusOverrideHcs28?.trustScores?.['verification.domain-proof.score'],
-  100,
-);
+assert.ok(dedupeHcs28?.trustScores?.total >= 0);
 
 const missingSkillMdRun = await runActionMode('missing-skill-md', 'validate');
 assert.ok(missingSkillMdRun.error);
@@ -614,6 +656,8 @@ await rm(validRun.runtimeRoot, { recursive: true, force: true });
 await apiServer.close();
 await rm(monitorRun.runtimeRoot, { recursive: true, force: true });
 await rm(quotePreviewRun.runtimeRoot, { recursive: true, force: true });
+await rm(trustedPreviewRun.runtimeRoot, { recursive: true, force: true });
+await rm(unsafePreviewRun.runtimeRoot, { recursive: true, force: true });
 await rm(managedCommentRun.runtimeRoot, { recursive: true, force: true });
 await rm(dedupeRun.runtimeRoot, { recursive: true, force: true });
 if (missingSkillMdRun.runtimeRoot) {

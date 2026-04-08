@@ -267,6 +267,38 @@ export async function fetchSkillQuotePreview(params) {
   }
 }
 
+export async function uploadSkillPreviewFromGithubOidc(params) {
+  const client = createClient(params);
+  try {
+    return await client.uploadSkillPreviewFromGithubOidc({
+      token: params.token,
+      report: params.report,
+    });
+  } catch (error) {
+    throw toBrokerError('POST /skills/preview/github-oidc', error);
+  }
+}
+
+export async function exchangeSkillPublishApiKeyFromGithubOidc(params) {
+  try {
+    return await requestJson({
+      method: 'POST',
+      baseUrl: params.baseUrl,
+      path: '/publish/github-oidc/exchange',
+      headers: { 'content-type': 'application/json' },
+      body: {
+        token: params.token,
+        ...(typeof params.sponsorFirstPublish === 'boolean'
+          ? { sponsorFirstPublish: params.sponsorFirstPublish }
+          : {}),
+      },
+      ...(params.fetchImplementation ? { fetchImplementation: params.fetchImplementation } : {}),
+    });
+  } catch (error) {
+    throw toBrokerError('POST /publish/github-oidc/exchange', error);
+  }
+}
+
 export async function quoteSkillPublish(params) {
   const client = createClient(params);
   try {

@@ -8,6 +8,8 @@ import {
   listSkillReleases,
   publishSkill as publishSkillRequest,
   quoteSkillPublish as quoteSkillPublishRequest,
+  exchangeSkillPublishApiKeyFromGithubOidc,
+  uploadSkillPreviewFromGithubOidc,
 } from './bin/lib/broker-api.mjs';
 import { buildDistributionKit, normalizeApiBaseUrl } from './bin/lib/distribution-kit.mjs';
 import { buildHcs28Fallback, computeHcs28TrustPreview } from './bin/lib/hcs-28.mjs';
@@ -349,6 +351,29 @@ const appendStepSummary = async (markdown) => {
   await appendFile(summaryPath, `${markdown}\n`);
 };
 
+const summarizeErrorBody = async (response) => {
+  try {
+    const text = await response.text();
+    return text.trim();
+  } catch {
+    return '';
+  }
+};
+
+const parseJsonResponse = async (response, fallbackMessage) => {
+  const text = await response.text();
+  if (!text) {
+    throw new ActionError(fallbackMessage);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new ActionError(
+      `${fallbackMessage}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
+
 const getWorkflowRunUrl = () => {
   const repository = getEnv('GITHUB_REPOSITORY');
   const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
@@ -360,6 +385,82 @@ const getWorkflowRunUrl = () => {
     return `${serverUrl}/${repository}/actions/runs/${runId}`;
   }
   return `${serverUrl}/${repository}/actions`;
+};
+
+const TRUSTED_OIDC_EVENTS = new Set([
+  'workflow_dispatch',
+  'push',
+  'release',
+  'schedule',
+  'repository_dispatch',
+]);
+
+const canUsePreviewOidc = (eventName) =>
+  TRUSTED_OIDC_EVENTS.has(String(eventName ?? '').trim().toLowerCase());
+
+const getGithubOidcToken = async () => {
+  const requestUrl = getEnv('ACTIONS_ID_TOKEN_REQUEST_URL');
+  const requestToken = getEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
+  if (!requestUrl || !requestToken) {
+    return '';
+  }
+  const response = await fetch(requestUrl, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${requestToken}`,
+    },
+  });
+  if (!response.ok) {
+    const details = await summarizeErrorBody(response);
+    throw new ActionError(
+      `GitHub OIDC token request failed with ${response.status}${details ? `: ${details}` : ''}`,
+    );
+  }
+  const payload = await parseJsonResponse(
+    response,
+    'GitHub OIDC token response was not valid JSON',
+  );
+  const token = String(payload?.value ?? '').trim();
+  if (!token) {
+    throw new ActionError('GitHub OIDC token response did not include value.');
+  }
+  return token;
+};
+
+const uploadPreviewRecord = async (params) => {
+  const oidcToken = await getGithubOidcToken();
+  if (!oidcToken) {
+    return null;
+  }
+  return uploadSkillPreviewFromGithubOidc({
+    baseUrl: params.apiBaseUrl,
+    token: oidcToken,
+    report: params.report,
+  });
+};
+
+const exchangePublishCredentialsFromGithubOidc = async (params) => {
+  const oidcToken = await getGithubOidcToken();
+  if (!oidcToken) {
+    throw new ActionError(
+      'GitHub OIDC token is unavailable. Grant job-level id-token: write on a trusted repo-owned workflow to use publish-auth=github-oidc.',
+    );
+  }
+  const response = await exchangeSkillPublishApiKeyFromGithubOidc({
+    baseUrl: params.apiBaseUrl,
+    token: oidcToken,
+  });
+  const apiKey = String(response?.apiKey ?? '').trim();
+  const accountId = String(response?.accountId ?? '').trim();
+  if (!apiKey) {
+    throw new ActionError(
+      'GitHub OIDC publish exchange did not return an apiKey.',
+    );
+  }
+  return {
+    apiKey,
+    accountId,
+  };
 };
 
 const normalizeSkillDirCandidate = (value) => {
@@ -909,8 +1010,9 @@ const syncManagedComment = async (params) => {
 
 const run = async () => {
   const apiBaseUrl = normalizeApiBaseUrl(getEnv('INPUT_API_BASE_URL'));
-  const apiKey = getEnv('INPUT_API_KEY');
-  const accountId = getEnv('INPUT_ACCOUNT_ID');
+  let apiKey = getEnv('INPUT_API_KEY');
+  let accountId = getEnv('INPUT_ACCOUNT_ID');
+  const publishAuthMode = String(getEnv('INPUT_PUBLISH_AUTH', 'api-key')).trim().toLowerCase();
   const skillDirInput = getEnv('INPUT_SKILL_DIR');
   const overrideName = getEnv('INPUT_NAME');
   const overrideVersion = getEnv('INPUT_VERSION');
@@ -924,6 +1026,7 @@ const run = async () => {
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
   const shouldSubmitIndexNow = toBoolean(getEnv('INPUT_SUBMIT_INDEXNOW'), false);
   const shouldRequestQuotePreview = toBoolean(getEnv('INPUT_QUOTE_PREVIEW'), false);
+  const shouldUploadPreview = toBoolean(getEnv('INPUT_PREVIEW_UPLOAD'), false);
   const repoSkillDirInput = getEnv('INPUT_REPO_SKILL_DIR');
   const commentMode = String(getEnv('INPUT_COMMENT_MODE', 'state-changes')).trim().toLowerCase();
   const commentOnSuccess = toBoolean(getEnv('INPUT_COMMENT_ON_SUCCESS'), true);
@@ -931,6 +1034,7 @@ const run = async () => {
   const githubToken = getEnv('INPUT_GITHUB_TOKEN');
   const mode = String(getEnv('INPUT_MODE', 'publish')).trim().toLowerCase() || 'publish';
   const jsonOutput = toBoolean(getEnv('INPUT_JSON'), false);
+  const eventName = getEnv('GITHUB_EVENT_NAME');
   const log = (message) => {
     if (!jsonOutput) {
       stdout(message);
@@ -940,8 +1044,24 @@ const run = async () => {
   if (!['publish', 'validate', 'monitor', 'quote'].includes(mode)) {
     throw new ActionError(`Unsupported mode: ${mode}`);
   }
+  if (!['api-key', 'github-oidc'].includes(publishAuthMode)) {
+    throw new ActionError(`Unsupported publish-auth input: ${publishAuthMode}`);
+  }
   if ((mode === 'publish' || mode === 'quote') && !apiKey) {
-    throw new ActionError('Missing api-key input. Configure RB_API_KEY in repository secrets.');
+    if (publishAuthMode === 'github-oidc') {
+      if (!canUsePreviewOidc(eventName)) {
+        throw new ActionError(
+          `publish-auth=github-oidc is only allowed from trusted repo-owned workflows. Current event: ${eventName || 'unknown'}.`,
+        );
+      }
+      const exchanged = await exchangePublishCredentialsFromGithubOidc({
+        apiBaseUrl,
+      });
+      apiKey = exchanged.apiKey;
+      accountId = accountId || exchanged.accountId;
+    } else {
+      throw new ActionError('Missing api-key input. Configure RB_API_KEY in repository secrets.');
+    }
   }
   if (!skillDirInput) {
     throw new ActionError('Missing skill-dir input.');
@@ -982,7 +1102,6 @@ const run = async () => {
   const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
   const commitSha = getEnv('GITHUB_SHA');
   const githubRef = getEnv('GITHUB_REF');
-  const eventName = getEnv('GITHUB_EVENT_NAME');
   const repoUrl = repository ? `${serverUrl}/${repository}` : '';
 
   if (stampRepoCommit) {
@@ -1254,6 +1373,23 @@ const run = async () => {
       excludedFiles,
       totalBytes,
     });
+    if (shouldUploadPreview && !['validate', 'monitor'].includes(mode)) {
+      stderr('Ignoring preview-upload because GitHub OIDC preview uploads are only supported for validate and monitor.');
+    } else if (shouldUploadPreview && !canUsePreviewOidc(eventName)) {
+      stderr(
+        `Skipping preview-upload for ${eventName || 'unknown'} because GitHub OIDC preview uploads are limited to trusted repo-owned workflows.`,
+      );
+    }
+    const previewUploadResult =
+      shouldUploadPreview && ['validate', 'monitor'].includes(mode) && canUsePreviewOidc(eventName)
+        ? await uploadPreviewRecord({
+            apiBaseUrl,
+            report: previewReport,
+          }).catch((error) => {
+            stderr(`Preview upload failed: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          })
+        : null;
     const statusByRepo = await resolveStatusByRepo({
       apiBaseUrl,
       repoUrl,
@@ -1378,7 +1514,7 @@ const run = async () => {
             : 'published'
           : 'validated';
     const publishReadiness = resolvePublishReadiness(missingRequirements);
-    const fallbackStatusUrl = statusByRepo?.statusUrl ?? '';
+    const fallbackStatusUrl = String(previewUploadResult?.statusUrl ?? statusByRepo?.statusUrl ?? '');
     const statusUrl = String(
       (publishedSkill ? distribution.urls.skillPageUrl : '') || fallbackStatusUrl,
     );

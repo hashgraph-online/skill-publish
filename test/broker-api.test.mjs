@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 
-import { requestJson, requestJsonWithTimeout } from '../bin/lib/broker-api.mjs';
+import {
+  exchangeSkillPublishApiKeyFromGithubOidc,
+  requestJson,
+  requestJsonWithTimeout,
+} from '../bin/lib/broker-api.mjs';
 
 function createFetchStub(log) {
   return async (url, options) => {
@@ -42,6 +46,18 @@ assert.equal(timeoutCalls.length, 1);
 assert.equal(
   timeoutCalls[0].url,
   'https://hol.org/registry/api/v1/credits/balance?accountId=0.0.123',
+);
+
+const exchangeCalls = [];
+await exchangeSkillPublishApiKeyFromGithubOidc({
+  baseUrl: 'https://hol.org/registry/api/v1',
+  token: 'github-oidc-token',
+  fetchImplementation: createFetchStub(exchangeCalls),
+});
+assert.equal(exchangeCalls.length, 1);
+assert.equal(
+  exchangeCalls[0].url,
+  'https://hol.org/registry/api/v1/publish/github-oidc/exchange',
 );
 
 process.stdout.write('broker api test passed\n');

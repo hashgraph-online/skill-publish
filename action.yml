@@ -16,6 +16,10 @@ inputs:
   api-key:
     description: "Registry Broker API key (required for quote and publish, optional for validate)"
     required: false
+  publish-auth:
+    description: "Publish auth mode for quote and publish: api-key or github-oidc"
+    required: false
+    default: "api-key"
   account-id:
     description: "Optional Hedera account ID used for publish authorization"
     required: false
@@ -55,6 +59,10 @@ inputs:
   github-token:
     description: "GitHub token used for release or PR annotations"
     required: false
+  preview-upload:
+    description: "When true, validate or monitor may upload preview state through GitHub OIDC only from trusted non-PR workflows"
+    required: false
+    default: "false"
   comment-mode:
     description: "Managed comment behavior: off, failures-only, state-changes, or always"
     required: false
@@ -244,6 +252,7 @@ runs:
         INPUT_API_BASE_URL: ${{ inputs.api-base-url }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_PUBLISH_AUTH: ${{ inputs.publish-auth }}
         INPUT_ACCOUNT_ID: ${{ inputs.account-id }}
         INPUT_SKILL_DIR: ${{ inputs.skill-dir }}
         INPUT_NAME: ${{ inputs.name }}
@@ -255,6 +264,7 @@ runs:
         INPUT_ANNOTATE: ${{ inputs.annotate }}
         INPUT_SUBMIT_INDEXNOW: ${{ inputs.submit-indexnow }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_PREVIEW_UPLOAD: ${{ inputs.preview-upload }}
         INPUT_COMMENT_MODE: ${{ inputs.comment-mode }}
         INPUT_COMMENT_ON_SUCCESS: ${{ inputs.comment-on-success }}
         INPUT_QUOTE_PREVIEW: ${{ inputs.quote-preview }}

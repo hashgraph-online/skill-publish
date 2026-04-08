@@ -39,6 +39,11 @@ assert.match(
 );
 assert.match(
   actionManifest,
+  /publish-auth:\n\s+description:\s+"Publish auth mode for quote and publish: api-key or github-oidc"/u,
+  'action.yml must expose publish-auth for trusted publishing flows',
+);
+assert.match(
+  actionManifest,
   /- name: Enable pnpm\n\s+shell: bash\n\s+working-directory: \$\{\{ github\.action_path \}\}\n\s+run: corepack enable pnpm/u,
   'action.yml must enable pnpm inside github.action_path before running the entrypoint',
 );
@@ -47,10 +52,10 @@ assert.match(
   /- name: Install action dependencies\n\s+shell: bash\n\s+working-directory: \$\{\{ github\.action_path \}\}\n\s+run: pnpm install --frozen-lockfile --prod --ignore-scripts/u,
   'action.yml must install production dependencies inside github.action_path',
 );
-assert.equal(
-  actionManifest.includes('preview-upload:'),
-  false,
-  'action.yml must not expose preview-upload after OIDC preview uploads were removed',
+assert.match(
+  actionManifest,
+  /preview-upload:\n\s+description:\s+"When true, validate or monitor may upload preview state through GitHub OIDC only from trusted non-PR workflows"/u,
+  'action.yml must expose preview-upload as an advanced trusted-workflow input',
 );
 assert.match(
   actionManifest,
@@ -76,6 +81,21 @@ assert.equal(
   readme.includes('Publishing immutable releases still consumes HOL Registry Broker credits.'),
   true,
   'README must state that publish remains credit-gated.',
+);
+assert.equal(
+  readme.includes('Advanced: trusted preview uploads with GitHub OIDC'),
+  true,
+  'README must document trusted preview uploads as an advanced opt-in path.',
+);
+assert.equal(
+  readme.includes('Never enable `id-token: write` on `pull_request` or `pull_request_target` just to validate a skill package.'),
+  true,
+  'README must explicitly warn against enabling OIDC on PR validation workflows.',
+);
+assert.equal(
+  readme.includes('POST /api/v1/publish/github-oidc/exchange'),
+  true,
+  'README must document the trusted publish exchange contract when broker support is available.',
 );
 
 process.stdout.write('readme/action contract test passed\n');
