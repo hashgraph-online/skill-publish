@@ -281,7 +281,7 @@ Options:
 `,
   'setup-action': `skill-publish setup-action [repoDir]
 
-Adds a skill-publish GitHub Actions workflow to an existing repository that already contains a valid HOL skill package. The generated validate workflow is fork-safe by default, stages only canonical package files, and keeps preview upload disabled until maintainers opt in.
+Adds a skill-publish GitHub Actions workflow to an existing repository that already contains a valid HOL skill package. The generated validate workflow is fork-safe by default and stages only canonical package files.
 
 Options:
   --repo-dir <dir>             Repository directory (or pass [repoDir] positional)
@@ -304,7 +304,7 @@ Options:
 `,
   'scaffold-repo': `skill-publish scaffold-repo [repoDir]
 
-Scaffolds a new skill repository with package files and publish workflow. The generated validate workflow is fork-safe by default and keeps preview upload disabled until maintainers opt in.
+Scaffolds a new skill repository with package files and publish workflow. The generated validate workflow is fork-safe by default and keeps validation fully local.
 
 Options:
   --repo-dir <dir>             Repository directory (or pass [repoDir] positional)

@@ -353,7 +353,6 @@ ${buildPrepareSkillPackageStep(skillDir)}
           mode: validate
           skill-dir: \${{ steps.package.outputs.dir }}
           annotate: "false"
-          preview-upload: "false"
           github-token: \${{ github.token }}
           comment-mode: "state-changes"
           comment-on-success: "true"

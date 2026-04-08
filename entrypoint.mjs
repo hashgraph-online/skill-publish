@@ -8,7 +8,6 @@ import {
   listSkillReleases,
   publishSkill as publishSkillRequest,
   quoteSkillPublish as quoteSkillPublishRequest,
-  uploadSkillPreviewFromGithubOidc,
 } from './bin/lib/broker-api.mjs';
 import { buildDistributionKit, normalizeApiBaseUrl } from './bin/lib/distribution-kit.mjs';
 import { buildHcs28Fallback, computeHcs28TrustPreview } from './bin/lib/hcs-28.mjs';
@@ -186,19 +185,6 @@ const resolveRole = (filePath) => {
   return 'file';
 };
 
-const summarizeErrorBody = async (response) => {
-  const text = await response.text();
-  if (!text) {
-    return '';
-  }
-  try {
-    const parsed = JSON.parse(text);
-    return JSON.stringify(parsed);
-  } catch {
-    return text;
-  }
-};
-
 const sleep = (delayMs) =>
   new Promise((resolve) => {
     setTimeout(resolve, delayMs);
@@ -363,20 +349,6 @@ const appendStepSummary = async (markdown) => {
   await appendFile(summaryPath, `${markdown}\n`);
 };
 
-const parseJsonResponse = async (response, fallbackMessage) => {
-  const text = await response.text();
-  if (!text) {
-    throw new ActionError(fallbackMessage);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new ActionError(
-      `${fallbackMessage}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-};
-
 const getWorkflowRunUrl = () => {
   const repository = getEnv('GITHUB_REPOSITORY');
   const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
@@ -390,50 +362,53 @@ const getWorkflowRunUrl = () => {
   return `${serverUrl}/${repository}/actions`;
 };
 
-const getGithubOidcToken = async () => {
-  const requestUrl = getEnv('ACTIONS_ID_TOKEN_REQUEST_URL');
-  const requestToken = getEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
-  if (!requestUrl || !requestToken) {
+const normalizeSkillDirCandidate = (value) => {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) {
     return '';
   }
-  const response = await fetch(requestUrl, {
-    method: 'GET',
-    headers: {
-      authorization: `Bearer ${requestToken}`,
-    },
-  });
-  if (!response.ok) {
-    const details = await summarizeErrorBody(response);
-    throw new ActionError(
-      `GitHub OIDC token request failed with ${response.status}${details ? `: ${details}` : ''}`,
-    );
+  const normalized = trimmed.replace(/\\/gu, '/').replace(/\/+$/u, '');
+  if (!normalized || normalized === '.') {
+    return '.';
   }
-  const payload = await parseJsonResponse(
-    response,
-    'GitHub OIDC token response was not valid JSON',
-  );
-  const token = String(payload?.value ?? '').trim();
-  if (!token) {
-    throw new ActionError('GitHub OIDC token response did not include value.');
-  }
-  return token;
+  return normalized.replace(/^\.\/+/u, '');
 };
 
-const uploadPreviewRecord = async (params) => {
-  const oidcToken = await getGithubOidcToken();
-  if (!oidcToken) {
-    return null;
+const isStagedPackageDirectory = (value) => {
+  const normalized = normalizeSkillDirCandidate(value);
+  if (!normalized) {
+    return false;
   }
+  return /(^|\/)publish-package-[^/]+/u.test(normalized);
+};
 
-  return uploadSkillPreviewFromGithubOidc({
-    baseUrl: params.apiBaseUrl,
-    token: oidcToken,
-    report: params.report,
-  });
+const parseVerificationSignal = (value) => {
+  if (value && typeof value === 'object' && !Array.isArray(value) && typeof value.ok === 'boolean') {
+    return value.ok;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return null;
+};
+
+const mergeVerificationSignals = (...values) => {
+  let sawFalse = false;
+  for (const value of values) {
+    const parsed = parseVerificationSignal(value);
+    if (parsed === true) {
+      return true;
+    }
+    if (parsed === false) {
+      sawFalse = true;
+    }
+  }
+  return sawFalse ? false : null;
 };
 
 const tryFetchStatusByRepo = async (params) => {
-  if (!params.repoUrl || !params.skillDir) {
+  const skillDir = normalizeSkillDirCandidate(params.skillDir);
+  if (!params.repoUrl || !skillDir || path.isAbsolute(skillDir)) {
     return null;
   }
   try {
@@ -444,13 +419,111 @@ const tryFetchStatusByRepo = async (params) => {
         fetchSkillStatusByRepo({
           baseUrl: params.apiBaseUrl,
           repoUrl: params.repoUrl,
-          skillDir: params.skillDir,
+          skillDir,
           ...(params.ref ? { ref: params.ref } : {}),
         }),
     });
   } catch {
     return null;
   }
+};
+
+const getTrustTierPriority = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'verified') {
+    return 4;
+  }
+  if (normalized === 'published') {
+    return 3;
+  }
+  if (normalized === 'validated') {
+    return 2;
+  }
+  if (normalized === 'unclaimed') {
+    return 1;
+  }
+  return 0;
+};
+
+const scoreStatusByRepo = (status) => {
+  if (!status || typeof status !== 'object' || Array.isArray(status)) {
+    return 0;
+  }
+  const trustTierPriority = getTrustTierPriority(status.trustTier);
+  const verificationSignals =
+    status.verificationSignals &&
+    typeof status.verificationSignals === 'object' &&
+    !Array.isArray(status.verificationSignals)
+      ? status.verificationSignals
+      : {};
+  const provenanceSignals =
+    status.provenanceSignals &&
+    typeof status.provenanceSignals === 'object' &&
+    !Array.isArray(status.provenanceSignals)
+      ? status.provenanceSignals
+      : {};
+  const domainProof = mergeVerificationSignals(
+    verificationSignals.domainProof,
+    status.domainProof,
+    status.verifiedDomain,
+  );
+  const manifestIntegrity = mergeVerificationSignals(
+    provenanceSignals.manifestIntegrity,
+    status.checks?.manifestIntegrity,
+  );
+  const repoCommitIntegrity = mergeVerificationSignals(
+    provenanceSignals.repoCommitIntegrity,
+    status.checks?.repoCommitIntegrity,
+  );
+  return (
+    trustTierPriority * 1000 +
+    (domainProof === true ? 200 : 0) +
+    (manifestIntegrity === true ? 40 : 0) +
+    (repoCommitIntegrity === true ? 20 : 0)
+  );
+};
+
+const resolveStatusByRepo = async (params) => {
+  const candidates = [];
+  const addCandidate = (value) => {
+    const normalized = normalizeSkillDirCandidate(value);
+    if (!normalized || candidates.includes(normalized)) {
+      return;
+    }
+    candidates.push(normalized);
+  };
+
+  const repoSkillDir = normalizeSkillDirCandidate(params.repoSkillDir);
+  const shouldUseRepositoryFallbacks = Boolean(repoSkillDir) || isStagedPackageDirectory(params.skillDir);
+
+  addCandidate(params.skillDir);
+  addCandidate(repoSkillDir);
+  if (shouldUseRepositoryFallbacks) {
+    addCandidate(params.skillName);
+    addCandidate('.');
+  }
+
+  const resolvedStatuses = await Promise.all(
+    candidates.map((candidate) =>
+      tryFetchStatusByRepo({
+        apiBaseUrl: params.apiBaseUrl,
+        repoUrl: params.repoUrl,
+        skillDir: candidate,
+        ...(params.ref ? { ref: params.ref } : {}),
+      }),
+    ),
+  );
+
+  let preferred = null;
+  for (const status of resolvedStatuses) {
+    if (!status || typeof status !== 'object' || Array.isArray(status)) {
+      continue;
+    }
+    if (!preferred || scoreStatusByRepo(status) > scoreStatusByRepo(preferred)) {
+      preferred = status;
+    }
+  }
+  return preferred;
 };
 
 const tryFetchPublishedSkill = async (params) => {
@@ -849,9 +922,9 @@ const run = async () => {
   const pollTimeoutMs = parseNumber(getEnv('INPUT_POLL_TIMEOUT_MS'), 720000);
   const pollIntervalMs = parseNumber(getEnv('INPUT_POLL_INTERVAL_MS'), 4000);
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
-  const shouldUploadPreview = toBoolean(getEnv('INPUT_PREVIEW_UPLOAD'), true);
   const shouldSubmitIndexNow = toBoolean(getEnv('INPUT_SUBMIT_INDEXNOW'), false);
   const shouldRequestQuotePreview = toBoolean(getEnv('INPUT_QUOTE_PREVIEW'), false);
+  const repoSkillDirInput = getEnv('INPUT_REPO_SKILL_DIR');
   const commentMode = String(getEnv('INPUT_COMMENT_MODE', 'state-changes')).trim().toLowerCase();
   const commentOnSuccess = toBoolean(getEnv('INPUT_COMMENT_ON_SUCCESS'), true);
   const explicitGroupKey = String(getEnv('INPUT_GROUP_KEY')).trim();
@@ -1181,24 +1254,14 @@ const run = async () => {
       excludedFiles,
       totalBytes,
     });
-    const previewUploadResult = shouldUploadPreview
-      ? await uploadPreviewRecord({
-          apiBaseUrl,
-          report: previewReport,
-        }).catch((error) => {
-          stderr(`Preview upload failed: ${error instanceof Error ? error.message : String(error)}`);
-          return null;
-        })
-      : null;
-    const statusByRepo =
-      mode === 'monitor'
-        ? await tryFetchStatusByRepo({
-            apiBaseUrl,
-            repoUrl,
-            skillDir: skillDirInput,
-            ref: githubRef,
-          })
-        : null;
+    const statusByRepo = await resolveStatusByRepo({
+      apiBaseUrl,
+      repoUrl,
+      skillDir: skillDirInput,
+      repoSkillDir: repoSkillDirInput,
+      skillName,
+      ref: githubRef,
+    });
     const repoCandidates =
       mode === 'monitor'
         ? await tryListRepoCandidates({
@@ -1315,10 +1378,7 @@ const run = async () => {
             : 'published'
           : 'validated';
     const publishReadiness = resolvePublishReadiness(missingRequirements);
-    const fallbackStatusUrl =
-      statusByRepo?.statusUrl ??
-      previewUploadResult?.statusUrl ??
-      '';
+    const fallbackStatusUrl = statusByRepo?.statusUrl ?? '';
     const statusUrl = String(
       (publishedSkill ? distribution.urls.skillPageUrl : '') || fallbackStatusUrl,
     );

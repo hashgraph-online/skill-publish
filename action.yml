@@ -55,10 +55,6 @@ inputs:
   github-token:
     description: "GitHub token used for release or PR annotations"
     required: false
-  preview-upload:
-    description: "When true, uploads validate or monitor previews through GitHub OIDC when available"
-    required: false
-    default: "true"
   comment-mode:
     description: "Managed comment behavior: off, failures-only, state-changes, or always"
     required: false
@@ -257,7 +253,6 @@ runs:
         INPUT_POLL_TIMEOUT_MS: ${{ inputs.poll-timeout-ms }}
         INPUT_POLL_INTERVAL_MS: ${{ inputs.poll-interval-ms }}
         INPUT_ANNOTATE: ${{ inputs.annotate }}
-        INPUT_PREVIEW_UPLOAD: ${{ inputs.preview-upload }}
         INPUT_SUBMIT_INDEXNOW: ${{ inputs.submit-indexnow }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         INPUT_COMMENT_MODE: ${{ inputs.comment-mode }}
