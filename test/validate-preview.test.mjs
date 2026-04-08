@@ -94,7 +94,6 @@ async function runActionMode(fixtureName, mode, options = {}) {
         INPUT_API_BASE_URL: options.apiBaseUrl ?? 'https://hol.org/registry/api/v1',
         INPUT_SKILL_DIR: skillDirInput,
         INPUT_ANNOTATE: 'false',
-        INPUT_PREVIEW_UPLOAD: options.previewUpload ?? 'true',
         GITHUB_OUTPUT: githubOutputPath,
         GITHUB_STEP_SUMMARY: githubSummaryPath,
         GITHUB_REPOSITORY: 'hashgraph-online/valid-skill',
@@ -160,7 +159,6 @@ assert.equal(previewJson.validation_status, 'passed');
 assert.deepEqual(previewJsonOnDisk, previewJson);
 assert.equal(githubOutput.get('status-url'), '');
 
-const previewUploadRequests = [];
 const quotePreviewRequests = [];
 const statusByRepoRequests = [];
 const versionLookupRequests = [];
@@ -168,7 +166,7 @@ let domainProofSkillLookupCount = 0;
 const managedCommentRequests = [];
 const managedCommentUpdates = [];
 const storedManagedComments = [];
-const oidcServer = await listenServer(async (request, response) => {
+const apiServer = await listenServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
   const requestPath = requestUrl.pathname;
   const body = await new Promise((resolve) => {
@@ -179,34 +177,6 @@ const oidcServer = await listenServer(async (request, response) => {
     });
     request.on('end', () => resolve(chunks));
   });
-
-  if (requestPath.startsWith('/oidc')) {
-    assert.equal(request.headers.authorization, 'Bearer broker-test-token');
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ value: 'github-oidc-token' }));
-    return;
-  }
-
-  if (requestPath === '/api/v1/skills/preview/github-oidc') {
-    previewUploadRequests.push({
-      authorization: request.headers.authorization,
-      body: body ? JSON.parse(body) : null,
-    });
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(
-      JSON.stringify({
-        id: 'preview-record-1',
-        previewId: 'preview_demo',
-        source: 'github-oidc',
-        generatedAt: '2026-04-04T10:00:00.000Z',
-        expiresAt: '2026-04-11T10:00:00.000Z',
-        statusUrl: 'https://hol.org/registry/skills/valid-skill',
-        authoritative: false,
-        report: JSON.parse(body),
-      }),
-    );
-    return;
-  }
 
   if (requestPath === '/api/v1/skills/quote-preview') {
     quotePreviewRequests.push(body ? JSON.parse(body) : null);
@@ -442,23 +412,7 @@ const oidcServer = await listenServer(async (request, response) => {
   response.end(JSON.stringify({ error: 'not found' }));
 });
 
-const uploadedRun = await runActionMode('valid-skill', 'validate', {
-  apiBaseUrl: `${oidcServer.baseUrl}/api/v1`,
-  extraEnv: {
-    ACTIONS_ID_TOKEN_REQUEST_URL: `${oidcServer.baseUrl}/oidc`,
-    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'broker-test-token',
-  },
-});
-assert.equal(uploadedRun.error, undefined, uploadedRun.error?.stderr ?? uploadedRun.error?.message);
-const uploadedOutput = parseGithubOutput(await readFile(uploadedRun.githubOutputPath, 'utf8'));
-assert.equal(uploadedOutput.get('status-url'), 'https://hol.org/registry/skills/valid-skill');
-assert.equal(previewUploadRequests.length, 1);
-assert.equal(previewUploadRequests[0].authorization, 'Bearer github-oidc-token');
-assert.equal(previewUploadRequests[0].body.name, 'valid-skill');
-
-const monitorRun = await runActionMode('valid-skill', 'monitor', {
-  previewUpload: 'false',
-});
+const monitorRun = await runActionMode('valid-skill', 'monitor');
 assert.equal(monitorRun.error, undefined, monitorRun.error?.stderr ?? monitorRun.error?.message);
 const monitorOutput = parseGithubOutput(await readFile(monitorRun.githubOutputPath, 'utf8'));
 assert.equal(monitorOutput.get('trust-tier'), 'validated');
@@ -467,8 +421,7 @@ assert.equal(monitorOutput.get('missing-requirements'), '[]');
 assert.ok(monitorOutput.has('next-actions'));
 
 const quotePreviewRun = await runActionMode('valid-skill', 'validate', {
-  apiBaseUrl: `${oidcServer.baseUrl}/api/v1`,
-  previewUpload: 'false',
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
   extraEnv: {
     INPUT_QUOTE_PREVIEW: 'true',
   },
@@ -491,10 +444,9 @@ assert.equal(quotePreviewRequests[0]?.name, 'valid-skill');
 assert.equal(quotePreviewRequests[0]?.version, '1.0.0');
 
 const managedCommentRun = await runActionMode('domain-proof-skill', 'monitor', {
-  apiBaseUrl: `${oidcServer.baseUrl}/api/v1`,
-  previewUpload: 'false',
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
   relativeSkillDir: true,
-  githubApiUrl: oidcServer.baseUrl,
+  githubApiUrl: apiServer.baseUrl,
   eventPayload: {
     pull_request: {
       number: 5,
@@ -551,11 +503,10 @@ assert.equal(
 );
 
 const dedupeRun = await runActionMode('domain-proof-skill', 'validate', {
-  apiBaseUrl: `${oidcServer.baseUrl}/api/v1`,
-  previewUpload: 'false',
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
   packageInRuntime: true,
   relativeSkillDir: true,
-  githubApiUrl: oidcServer.baseUrl,
+  githubApiUrl: apiServer.baseUrl,
   eventPayload: {
     pull_request: {
       number: 5,
@@ -616,8 +567,7 @@ assert.ok(
 );
 
 const statusOverrideRun = await runActionMode('domain-proof-skill', 'validate', {
-  apiBaseUrl: `${oidcServer.baseUrl}/api/v1`,
-  previewUpload: 'false',
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
   packageInRuntime: true,
   relativeSkillDir: true,
   extraEnv: {
@@ -668,8 +618,7 @@ assert.match(
 );
 
 await rm(validRun.runtimeRoot, { recursive: true, force: true });
-await oidcServer.close();
-await rm(uploadedRun.runtimeRoot, { recursive: true, force: true });
+await apiServer.close();
 await rm(monitorRun.runtimeRoot, { recursive: true, force: true });
 await rm(quotePreviewRun.runtimeRoot, { recursive: true, force: true });
 await rm(managedCommentRun.runtimeRoot, { recursive: true, force: true });

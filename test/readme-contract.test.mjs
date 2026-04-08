@@ -48,9 +48,9 @@ assert.match(
   'action.yml must install production dependencies inside github.action_path',
 );
 assert.equal(
-  actionManifest.match(/INPUT_PREVIEW_UPLOAD:/gu)?.length ?? 0,
-  1,
-  'action.yml must only declare INPUT_PREVIEW_UPLOAD once',
+  actionManifest.includes('preview-upload:'),
+  false,
+  'action.yml must not expose preview-upload after OIDC preview uploads were removed',
 );
 assert.match(
   actionManifest,

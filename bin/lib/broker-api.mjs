@@ -302,15 +302,3 @@ export async function fetchSkillPublishJob(params) {
     throw toBrokerError(`GET /skills/jobs/${params.jobId}`, error);
   }
 }
-
-export async function uploadSkillPreviewFromGithubOidc(params) {
-  const client = createClient({ baseUrl: params.baseUrl });
-  try {
-    return await client.uploadSkillPreviewFromGithubOidc({
-      token: params.token,
-      report: params.report,
-    });
-  } catch (error) {
-    throw toBrokerError('POST /skills/preview/github-oidc', error);
-  }
-}

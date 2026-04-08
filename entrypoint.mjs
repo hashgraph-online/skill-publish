@@ -8,7 +8,6 @@ import {
   listSkillReleases,
   publishSkill as publishSkillRequest,
   quoteSkillPublish as quoteSkillPublishRequest,
-  uploadSkillPreviewFromGithubOidc,
 } from './bin/lib/broker-api.mjs';
 import { buildDistributionKit, normalizeApiBaseUrl } from './bin/lib/distribution-kit.mjs';
 import { buildHcs28Fallback, computeHcs28TrustPreview } from './bin/lib/hcs-28.mjs';
@@ -209,19 +208,6 @@ const resolveRole = (filePath) => {
   return 'file';
 };
 
-const summarizeErrorBody = async (response) => {
-  const text = await response.text();
-  if (!text) {
-    return '';
-  }
-  try {
-    const parsed = JSON.parse(text);
-    return JSON.stringify(parsed);
-  } catch {
-    return text;
-  }
-};
-
 const sleep = (delayMs) =>
   new Promise((resolve) => {
     setTimeout(resolve, delayMs);
@@ -386,20 +372,6 @@ const appendStepSummary = async (markdown) => {
   await appendFile(summaryPath, `${markdown}\n`);
 };
 
-const parseJsonResponse = async (response, fallbackMessage) => {
-  const text = await response.text();
-  if (!text) {
-    throw new ActionError(fallbackMessage);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new ActionError(
-      `${fallbackMessage}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-};
-
 const getWorkflowRunUrl = () => {
   const repository = getEnv('GITHUB_REPOSITORY');
   const serverUrl = getEnv('GITHUB_SERVER_URL', 'https://github.com');
@@ -411,48 +383,6 @@ const getWorkflowRunUrl = () => {
     return `${serverUrl}/${repository}/actions/runs/${runId}`;
   }
   return `${serverUrl}/${repository}/actions`;
-};
-
-const getGithubOidcToken = async () => {
-  const requestUrl = getEnv('ACTIONS_ID_TOKEN_REQUEST_URL');
-  const requestToken = getEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
-  if (!requestUrl || !requestToken) {
-    return '';
-  }
-  const response = await fetch(requestUrl, {
-    method: 'GET',
-    headers: {
-      authorization: `Bearer ${requestToken}`,
-    },
-  });
-  if (!response.ok) {
-    const details = await summarizeErrorBody(response);
-    throw new ActionError(
-      `GitHub OIDC token request failed with ${response.status}${details ? `: ${details}` : ''}`,
-    );
-  }
-  const payload = await parseJsonResponse(
-    response,
-    'GitHub OIDC token response was not valid JSON',
-  );
-  const token = String(payload?.value ?? '').trim();
-  if (!token) {
-    throw new ActionError('GitHub OIDC token response did not include value.');
-  }
-  return token;
-};
-
-const uploadPreviewRecord = async (params) => {
-  const oidcToken = await getGithubOidcToken();
-  if (!oidcToken) {
-    return null;
-  }
-
-  return uploadSkillPreviewFromGithubOidc({
-    baseUrl: params.apiBaseUrl,
-    token: oidcToken,
-    report: params.report,
-  });
 };
 
 const normalizeSkillDirCandidate = (value) => {
@@ -1132,7 +1062,6 @@ const run = async () => {
   const pollTimeoutMs = parseNumber(getEnv('INPUT_POLL_TIMEOUT_MS'), 720000);
   const pollIntervalMs = parseNumber(getEnv('INPUT_POLL_INTERVAL_MS'), 4000);
   const shouldAnnotate = toBoolean(getEnv('INPUT_ANNOTATE'), true);
-  const shouldUploadPreview = toBoolean(getEnv('INPUT_PREVIEW_UPLOAD'), true);
   const shouldSubmitIndexNow = toBoolean(getEnv('INPUT_SUBMIT_INDEXNOW'), false);
   const shouldRequestQuotePreview = toBoolean(getEnv('INPUT_QUOTE_PREVIEW'), false);
   const repoSkillDirInput = getEnv('INPUT_REPO_SKILL_DIR');
@@ -1471,15 +1400,6 @@ const run = async () => {
       excludedFiles,
       totalBytes,
     });
-    const previewUploadResult = shouldUploadPreview
-      ? await uploadPreviewRecord({
-          apiBaseUrl,
-          report: previewReport,
-        }).catch((error) => {
-          stderr(`Preview upload failed: ${error instanceof Error ? error.message : String(error)}`);
-          return null;
-        })
-      : null;
     const statusByRepo = await resolveStatusByRepo({
       apiBaseUrl,
       repoUrl,
@@ -1606,10 +1526,7 @@ const run = async () => {
             : 'published'
           : 'validated';
     const publishReadiness = resolvePublishReadiness(missingRequirements);
-    const fallbackStatusUrl =
-      statusByRepo?.statusUrl ??
-      previewUploadResult?.statusUrl ??
-      '';
+    const fallbackStatusUrl = statusByRepo?.statusUrl ?? '';
     const statusUrl = String(
       (publishedSkill ? distribution.urls.skillPageUrl : '') || fallbackStatusUrl,
     );

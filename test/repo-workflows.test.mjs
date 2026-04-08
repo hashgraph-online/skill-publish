@@ -259,11 +259,6 @@ try {
     'Validate workflow must stage a canonical package before validation.',
   );
   assert.equal(
-    validateWorkflow.includes('preview-upload: "false"'),
-    true,
-    'Validate workflow must disable preview upload by default.',
-  );
-  assert.equal(
     validateWorkflow.includes('github-token: ${{ github.token }}'),
     true,
     'Validate workflow must pass the GitHub token through so the action can update a single managed PR comment.',
@@ -320,11 +315,6 @@ try {
     'Scaffolded validate workflow must stay fork-safe by default.',
   );
   assert.equal(
-    scaffoldedValidateWorkflow.includes('preview-upload: "false"'),
-    true,
-    'Scaffolded validate workflow must disable preview upload by default.',
-  );
-  assert.equal(
     scaffoldedValidateWorkflow.includes('github-token: ${{ github.token }}'),
     true,
     'Scaffolded validate workflow must pass the GitHub token through for managed PR comments.',
@@ -362,13 +352,6 @@ try {
     scaffoldedReadme.includes('Open a pull request to run fork-safe validate-only CI first.'),
     true,
     'Scaffolded repo README must direct maintainers through validate-first setup.',
-  );
-  assert.equal(
-    scaffoldedReadme.includes(
-      'Keep preview upload disabled until maintainers explicitly opt in to a trusted repo-owned workflow.',
-    ),
-    true,
-    'Scaffolded repo README must keep preview uploads opt-in instead of enabling OIDC by default.',
   );
   assert.equal(
     scaffoldedReadme.includes('Add `RB_API_KEY` only when you are ready to quote and publish immutable releases.'),

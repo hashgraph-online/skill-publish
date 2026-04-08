@@ -354,7 +354,6 @@ ${buildPrepareSkillPackageStep(skillDir)}
           skill-dir: \${{ steps.package.outputs.dir }}
           repo-skill-dir: ${JSON.stringify(skillDir === '' ? '.' : skillDir)}
           annotate: "false"
-          preview-upload: "false"
           github-token: \${{ github.token }}
           comment-mode: "state-changes"
           comment-on-success: "true"

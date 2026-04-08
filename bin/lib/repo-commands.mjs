@@ -134,9 +134,8 @@ This repository contains an HCS-26 skill package and CI publishing workflow powe
 
 1. Open a pull request to run fork-safe validate-only CI first.
 2. Update files under \`${skillDir}\` until validation passes.
-3. Keep preview upload disabled until maintainers explicitly opt in to a trusted repo-owned workflow.
-4. Add \`RB_API_KEY\` only when you are ready to quote and publish immutable releases.
-5. Create a GitHub release to trigger publish.
+3. Add \`RB_API_KEY\` only when you are ready to quote and publish immutable releases.
+4. Create a GitHub release to trigger publish.
 `;
 
   await writeFile(readmePath, `${readme}\n`, 'utf8');

@@ -41,7 +41,6 @@ async function runCli(args, options = {}) {
       cwd: runtimeRoot,
       env: {
         ...process.env,
-        INPUT_PREVIEW_UPLOAD: 'false',
         INPUT_ANNOTATE: 'false',
         ...options.env,
       },
