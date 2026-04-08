@@ -27,10 +27,33 @@ import {
 import {
   buildManagedCommentBody,
   buildManagedCommentMarker,
+  buildPreviewCommentMetadata,
   buildManagedCommentStateSignature,
+  extractManagedCommentMetadata,
   extractManagedCommentState,
   shouldPublishManagedComment,
 } from './bin/lib/managed-comments.mjs';
+import {
+  buildPublishCommentMarker,
+  buildReleaseBlockMarker,
+  buildStateSignature,
+  decodeCommentMetadata,
+  encodeCommentMetadata,
+} from './bin/lib/comment-metadata.mjs';
+import {
+  renderPublishComment,
+  renderReleaseBlock,
+} from './bin/lib/comment-renderer.mjs';
+import {
+  createAnnotationResult,
+  createGitHubApiRequest,
+  findExistingCommentByMarker,
+  listIssueComments,
+  resolveAssociatedPullRequest,
+  upsertIssueComment,
+  upsertReleaseBodyBlock,
+} from './bin/lib/github-annotations.mjs';
+import { normalizeText } from './bin/lib/text-utils.mjs';
 
 const stdout = (message) => process.stdout.write(`${message}\n`);
 const stderr = (message) => process.stderr.write(`${message}\n`);
@@ -463,7 +486,6 @@ const exchangePublishCredentialsFromGithubOidc = async (params) => {
     accountId,
   };
 };
-
 const normalizeSkillDirCandidate = (value) => {
   const trimmed = String(value ?? '').trim();
   if (!trimmed) {
@@ -746,6 +768,11 @@ const setLifecycleOutputs = async (params) => {
   );
   await setActionOutput('estimated-credits-range', params.estimatedCreditsRange ?? '');
   await setActionOutput('managed-comment-url', params.managedCommentUrl ?? '');
+  await setActionOutput('managed-comment-status', params.managedCommentStatus ?? '');
+  await setActionOutput('managed-comment-reason', params.managedCommentReason ?? '');
+  await setActionOutput('publish-comment-url', params.publishCommentUrl ?? '');
+  await setActionOutput('publish-comment-status', params.publishCommentStatus ?? '');
+  await setActionOutput('release-annotation-status', params.releaseAnnotationStatus ?? '');
   await setActionOutput('purchase-url', params.purchaseUrl ?? '');
   await setActionOutput('publish-url', params.publishUrl ?? '');
   await setActionOutput('verification-url', params.verificationUrl ?? '');
@@ -804,32 +831,6 @@ const maybeSubmitIndexNow = async (distribution, enabled) => {
   return submitToIndexNow(distribution.indexing.urls);
 };
 
-const githubApiRequest = async (params) => {
-  const { method, endpoint, token, body, accept } = params;
-  const apiBaseUrl = getEnv('GITHUB_API_URL', 'https://api.github.com');
-  const url = `${apiBaseUrl}${endpoint}`;
-  const response = await fetch(url, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-      accept: accept ?? 'application/vnd.github+json',
-      'x-github-api-version': '2022-11-28',
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!response.ok) {
-    const details = await summarizeErrorBody(response);
-    throw new ActionError(
-      `GitHub API ${method} ${endpoint} failed with ${response.status}${details ? `: ${details}` : ''}`,
-    );
-  }
-  if (response.status === 204) {
-    return null;
-  }
-  return response.json();
-};
-
 const buildPublishMarkdown = (result) => {
   const lines = [];
   lines.push('### HCS-26 skill publish result');
@@ -876,79 +877,15 @@ const buildDistribution = (apiBaseUrl, name, version, skillJson = {}) =>
     skillJson,
   });
 
-const annotateResult = async (params) => {
-  const {
-    shouldAnnotate,
-    token,
-    markdown,
-    jobId,
-    eventPayload,
-  } = params;
-  if (!shouldAnnotate || !token) {
-    return 'none';
+const resolveCommentModeState = (params) => {
+  if (!params.token) {
+    return createAnnotationResult({ status: 'skipped', reason: 'missing-github-token' });
   }
-
-  const repository = getEnv('GITHUB_REPOSITORY');
-  if (!repository || !repository.includes('/')) {
-    return 'none';
+  if (params.eventName !== 'pull_request' || !params.pullNumber) {
+    return createAnnotationResult({ status: 'skipped', reason: 'non-pr-event' });
   }
-  const [owner, repo] = repository.split('/');
-  const eventName = getEnv('GITHUB_EVENT_NAME');
-  const marker = `<!-- skills-publish:${jobId} -->`;
-  const content = `${marker}\n${markdown}`;
-
-  if (eventName === 'release' && eventPayload?.release?.id) {
-    const releaseId = Number(eventPayload.release.id);
-    const existingBody = typeof eventPayload.release.body === 'string' ? eventPayload.release.body : '';
-    if (existingBody.includes(marker)) {
-      return `release:${releaseId}`;
-    }
-    const mergedBody = existingBody.trim().length > 0
-      ? `${existingBody}\n\n${content}`
-      : content;
-    await githubApiRequest({
-      method: 'PATCH',
-      endpoint: `/repos/${owner}/${repo}/releases/${releaseId}`,
-      token,
-      body: { body: mergedBody },
-    });
-    return `release:${releaseId}`;
-  }
-
-  if (eventName === 'push') {
-    const sha = getEnv('GITHUB_SHA');
-    if (!sha) {
-      return 'none';
-    }
-    const pulls = await githubApiRequest({
-      method: 'GET',
-      endpoint: `/repos/${owner}/${repo}/commits/${sha}/pulls`,
-      token,
-      accept: 'application/vnd.github+json',
-    });
-    if (!Array.isArray(pulls) || pulls.length === 0) {
-      return 'none';
-    }
-    const pull = pulls[0];
-    const pullNumber = typeof pull?.number === 'number' ? pull.number : null;
-    if (!pullNumber) {
-      return 'none';
-    }
-    await githubApiRequest({
-      method: 'POST',
-      endpoint: `/repos/${owner}/${repo}/issues/${pullNumber}/comments`,
-      token,
-      body: { body: content },
-    });
-    return `pr:${pullNumber}`;
-  }
-
-  return 'none';
-};
-
-const syncManagedComment = async (params) => {
-  if (!params.token || params.eventName !== 'pull_request' || !params.pullNumber) {
-    return '';
+  if (params.commentMode === 'off') {
+    return createAnnotationResult({ status: 'disabled', reason: 'comment-mode-off' });
   }
   if (
     !shouldPublishManagedComment({
@@ -957,56 +894,258 @@ const syncManagedComment = async (params) => {
       publishReadiness: params.publishReadiness,
     })
   ) {
-    return '';
-  }
-
-  const comments = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const pageComments = await githubApiRequest({
-      method: 'GET',
-      endpoint: `/repos/${params.owner}/${params.repo}/issues/${params.pullNumber}/comments?per_page=100&page=${page}`,
-      token: params.token,
+    return createAnnotationResult({
+      status: 'skipped',
+      reason: 'comment-mode-gated',
     });
-    if (!Array.isArray(pageComments) || pageComments.length === 0) {
-      break;
-    }
-    comments.push(...pageComments);
-    if (pageComments.length < 100) {
-      break;
-    }
   }
-  const existingComment = Array.isArray(comments)
-    ? comments.find((comment) =>
-        String(comment?.body ?? '').includes(params.marker),
-      )
-    : null;
+  return null;
+};
 
+const syncManagedComment = async (params) => {
+  const commentState = resolveCommentModeState(params);
+  if (commentState) {
+    return commentState;
+  }
+  const comments = await listIssueComments({
+    githubApiRequest: params.githubApiRequest,
+    owner: params.owner,
+    repo: params.repo,
+    pullNumber: params.pullNumber,
+    token: params.token,
+  });
+  const existingComment = findExistingCommentByMarker(comments, params.marker);
+  const previousMetadata = existingComment
+    ? extractManagedCommentMetadata(existingComment.body) || decodeCommentMetadata(existingComment.body)
+    : null;
   if (
     params.commentMode === 'state-changes' &&
     existingComment &&
     extractManagedCommentState(existingComment.body) === params.stateSignature
   ) {
-    return String(existingComment.html_url ?? '');
-  }
-
-  const body = buildManagedCommentBody(params);
-  if (existingComment?.id) {
-    const updated = await githubApiRequest({
-      method: 'PATCH',
-      endpoint: `/repos/${params.owner}/${params.repo}/issues/comments/${existingComment.id}`,
-      token: params.token,
-      body: { body },
+    return createAnnotationResult({
+      status: 'unchanged',
+      reason: 'state-unchanged',
+      url: String(existingComment.html_url ?? ''),
+      id: Number(existingComment.id ?? 0) || null,
+      previousBody: String(existingComment.body ?? ''),
+      updatedBody: String(existingComment.body ?? ''),
     });
-    return String(updated?.html_url ?? '');
+  }
+  const body = buildManagedCommentBody({
+    ...params,
+    previousMetadata,
+    currentMetadata: params.currentMetadata,
+  });
+  return upsertIssueComment({
+    githubApiRequest: params.githubApiRequest,
+    owner: params.owner,
+    repo: params.repo,
+    pullNumber: params.pullNumber,
+    token: params.token,
+    body,
+    existingComment,
+    skipIfUnchanged: params.commentMode === 'state-changes',
+  });
+};
+
+const buildPublishCommentMetadata = (params) => ({
+  surface: 'publish',
+  mode: 'publish',
+  groupKey: normalizeText(params.groupKey),
+  skillName: normalizeText(params.skillName),
+  skillVersion: normalizeText(params.skillVersion),
+  trustTier: normalizeText(params.trustTier || 'published'),
+  publishReadiness: normalizeText(params.publishReadiness || 'published'),
+  missingRequirements: [],
+  estimatedCreditsRange: '',
+  statusUrl: normalizeText(params.statusUrl),
+  hcs28Total: null,
+  signalScores: {},
+  packageSummary: {
+    includedFileCount: null,
+    excludedFileCount: Array.isArray(params.excludedFiles) ? params.excludedFiles.length : null,
+    totalBytes: null,
+  },
+  published: params.published === true,
+  skipReason: normalizeText(params.skipReason),
+  workflowRunUrl: normalizeText(params.workflowRunUrl),
+  quoteId: normalizeText(params.quoteId),
+  jobId: normalizeText(params.jobId),
+  skillPageUrl: normalizeText(params.skillPageUrl),
+  renderedAt: new Date().toISOString(),
+});
+
+const isAnnotationWritten = (result) =>
+  result?.status === 'created' || result?.status === 'updated' || result?.status === 'unchanged';
+
+const syncPublishAnnotations = async (params) => {
+  if (!params.shouldAnnotate) {
+    return {
+      annotationTarget: 'none',
+      publishComment: createAnnotationResult({ status: 'disabled', reason: 'annotate-disabled' }),
+      releaseBlock: createAnnotationResult({ status: 'disabled', reason: 'annotate-disabled' }),
+    };
+  }
+  if (!params.token) {
+    return {
+      annotationTarget: 'none',
+      publishComment: createAnnotationResult({ status: 'skipped', reason: 'missing-github-token' }),
+      releaseBlock: createAnnotationResult({ status: 'skipped', reason: 'missing-github-token' }),
+    };
   }
 
-  const created = await githubApiRequest({
-    method: 'POST',
-    endpoint: `/repos/${params.owner}/${params.repo}/issues/${params.pullNumber}/comments`,
-    token: params.token,
-    body: { body },
-  });
-  return String(created?.html_url ?? '');
+  const releaseResult = (() =>
+    createAnnotationResult({ status: 'skipped', reason: 'not-release-event' }))();
+  const publishResult = (() =>
+    createAnnotationResult({ status: 'skipped', reason: 'associated-pr-not-found' }))();
+  const eventName = normalizeText(params.eventName);
+  let associatedPullNumber = null;
+
+  if (eventName === 'release' && Number.isFinite(params.releaseId) && params.releaseId > 0) {
+    const releaseIdentity = `${params.skillName}@${params.skillVersion}`;
+    const releaseMarker = buildReleaseBlockMarker(releaseIdentity);
+    const releaseContent = renderReleaseBlock({
+      skillName: params.skillName,
+      skillVersion: params.skillVersion,
+      skillPageUrl: params.distribution?.urls?.skillPageUrl,
+      pinnedSkillMdUrl: params.distribution?.urls?.pinnedSkillMdUrl,
+      badgeMarkdown: params.distribution?.snippets?.badgeMarkdown,
+      skillJsonHrl: params.skillJsonHrl,
+      directoryTopicId: params.directoryTopicId,
+      packageTopicId: params.packageTopicId,
+    });
+    try {
+      const releaseUpsert = await upsertReleaseBodyBlock({
+        githubApiRequest: params.githubApiRequest,
+        owner: params.owner,
+        repo: params.repo,
+        releaseId: params.releaseId,
+        token: params.token,
+        marker: releaseMarker,
+        content: releaseContent,
+      });
+      Object.assign(releaseResult, releaseUpsert);
+    } catch (error) {
+      Object.assign(
+        releaseResult,
+        createAnnotationResult({
+          status: 'failed',
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
+
+  try {
+    const associatedPr = await resolveAssociatedPullRequest({
+      githubApiRequest: params.githubApiRequest,
+      owner: params.owner,
+      repo: params.repo,
+      token: params.token,
+      eventName,
+      eventPayload: params.eventPayload,
+      commitSha: params.commitSha,
+    });
+    if (associatedPr?.number) {
+      associatedPullNumber = Number(associatedPr.number);
+      const groupKey = params.groupKey || `${params.skillName}-${params.skillVersion}`;
+      const marker = buildPublishCommentMarker(groupKey);
+      const comments = await listIssueComments({
+        githubApiRequest: params.githubApiRequest,
+        owner: params.owner,
+        repo: params.repo,
+        pullNumber: associatedPr.number,
+        token: params.token,
+      });
+      const existingComment = findExistingCommentByMarker(comments, marker);
+      const previousMetadata = existingComment
+        ? decodeCommentMetadata(existingComment.body)
+        : null;
+      const currentMetadata = buildPublishCommentMetadata({
+        groupKey,
+        skillName: params.skillName,
+        skillVersion: params.skillVersion,
+        published: params.published,
+        skipReason: params.skipReason,
+        statusUrl: params.distribution?.urls?.skillPageUrl,
+        excludedFiles: params.excludedFiles,
+        workflowRunUrl: params.workflowRunUrl,
+        quoteId: params.quoteId,
+        jobId: params.jobId,
+        skillPageUrl: params.distribution?.urls?.skillPageUrl,
+      });
+      const encodedMetadata = encodeCommentMetadata(currentMetadata);
+      const stateSignature = buildStateSignature(currentMetadata);
+      const body = renderPublishComment({
+        marker,
+        encodedMetadata,
+        stateSignature,
+        previousMetadata,
+        currentMetadata,
+        skillName: params.skillName,
+        skillVersion: params.skillVersion,
+        trustTier: 'published',
+        published: params.published,
+        skipReason: params.skipReason,
+        credits: params.credits,
+        estimatedCostHbar: params.estimatedCostHbar,
+        quoteId: params.quoteId,
+        jobId: params.jobId,
+        skillJsonHrl: params.skillJsonHrl,
+        directoryTopicId: params.directoryTopicId,
+        packageTopicId: params.packageTopicId,
+        repoUrl: params.repoUrl,
+        commitSha: params.commitSha,
+        workflowRunUrl: params.workflowRunUrl,
+        distribution: params.distribution,
+        skillPageUrl: params.distribution?.urls?.skillPageUrl,
+        pinnedSkillMdUrl: params.distribution?.urls?.pinnedSkillMdUrl,
+        latestSkillMdUrl: params.distribution?.urls?.latestSkillMdUrl,
+        pinnedManifestUrl: params.distribution?.urls?.pinnedManifestUrl,
+        installMetadataPinnedUrl: params.distribution?.urls?.installMetadataPinnedUrl,
+      });
+      const publishUpsert = await upsertIssueComment({
+        githubApiRequest: params.githubApiRequest,
+        owner: params.owner,
+        repo: params.repo,
+        pullNumber: associatedPr.number,
+        token: params.token,
+        body,
+        existingComment,
+        skipIfUnchanged: true,
+      });
+      Object.assign(publishResult, publishUpsert);
+    }
+  } catch (error) {
+    Object.assign(
+      publishResult,
+      createAnnotationResult({
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+
+  const annotationTarget = (() => {
+    if (isAnnotationWritten(releaseResult) && Number.isFinite(params.releaseId) && params.releaseId > 0) {
+      return `release:${params.releaseId}`;
+    }
+    if (isAnnotationWritten(publishResult) && Number.isFinite(associatedPullNumber) && associatedPullNumber > 0) {
+      return `pr:${associatedPullNumber}`;
+    }
+    if (releaseResult.status === 'failed' || publishResult.status === 'failed') {
+      return 'failed';
+    }
+    return 'none';
+  })();
+
+  return {
+    annotationTarget,
+    publishComment: publishResult,
+    releaseBlock: releaseResult,
+    associatedPullNumber,
+  };
 };
 
 const run = async () => {
@@ -1031,10 +1170,14 @@ const run = async () => {
   const repoSkillDirInput = getEnv('INPUT_REPO_SKILL_DIR');
   const commentMode = String(getEnv('INPUT_COMMENT_MODE', 'state-changes')).trim().toLowerCase();
   const commentOnSuccess = toBoolean(getEnv('INPUT_COMMENT_ON_SUCCESS'), true);
+  const conversionHintLevel = String(getEnv('INPUT_CONVERSION_HINT_LEVEL', 'soft')).trim().toLowerCase();
   const explicitGroupKey = String(getEnv('INPUT_GROUP_KEY')).trim();
   const githubToken = getEnv('INPUT_GITHUB_TOKEN');
   const mode = String(getEnv('INPUT_MODE', 'publish')).trim().toLowerCase() || 'publish';
   const jsonOutput = toBoolean(getEnv('INPUT_JSON'), false);
+  const githubApiRequest = createGitHubApiRequest(
+    getEnv('GITHUB_API_URL', 'https://api.github.com'),
+  );
   const eventName = getEnv('GITHUB_EVENT_NAME');
   const log = (message) => {
     if (!jsonOutput) {
@@ -1228,6 +1371,11 @@ const run = async () => {
         missingRequirements: [],
         estimatedCreditsRange: '',
         managedCommentUrl: '',
+        managedCommentStatus: 'disabled',
+        managedCommentReason: 'publish-mode',
+        publishCommentUrl: '',
+        publishCommentStatus: 'disabled',
+        releaseAnnotationStatus: 'disabled',
         purchaseUrl: '',
         publishUrl: result.distribution.urls.skillPageUrl,
         verificationUrl: result.distribution.urls.skillPageUrl,
@@ -1349,14 +1497,11 @@ const run = async () => {
       ...file,
       sizeBytes: Buffer.byteLength(file.base64, 'base64'),
     }));
-    const publishedSkill =
-      mode === 'monitor'
-        ? await tryFetchPublishedSkill({
-            apiBaseUrl,
-            skillName,
-            skillVersion,
-          })
-        : null;
+    const publishedSkill = await tryFetchPublishedSkill({
+      apiBaseUrl,
+      skillName,
+      skillVersion,
+    });
     const previewReport = buildSkillPreviewReport({
       toolVersion,
       repository,
@@ -1435,22 +1580,24 @@ const run = async () => {
               ? publishedSkill.verificationSignals
               : {}
           ),
-          publisherBound:
-            publishedSkill?.verificationSignals?.publisherBound ??
-            statusByRepo?.verificationSignals?.publisherBound ??
-            null,
-          repoCommitIntegrity:
-            publishedSkill?.verificationSignals?.repoCommitIntegrity ??
-            statusByRepo?.provenanceSignals?.repoCommitIntegrity ??
-            null,
-          manifestIntegrity:
-            publishedSkill?.verificationSignals?.manifestIntegrity ??
-            statusByRepo?.provenanceSignals?.manifestIntegrity ??
-            null,
-          domainProof:
-            publishedSkill?.verificationSignals?.domainProof ??
-            statusByRepo?.verificationSignals?.domainProof ??
-            null,
+          publisherBound: mergeVerificationSignals(
+            statusByRepo?.verificationSignals?.publisherBound,
+            publishedSkill?.verificationSignals?.publisherBound,
+          ),
+          repoCommitIntegrity: mergeVerificationSignals(
+            statusByRepo?.provenanceSignals?.repoCommitIntegrity,
+            publishedSkill?.verificationSignals?.repoCommitIntegrity,
+          ),
+          manifestIntegrity: mergeVerificationSignals(
+            statusByRepo?.provenanceSignals?.manifestIntegrity,
+            publishedSkill?.verificationSignals?.manifestIntegrity,
+          ),
+          domainProof: mergeVerificationSignals(
+            statusByRepo?.verificationSignals?.domainProof,
+            statusByRepo?.domainProof,
+            statusByRepo?.verifiedDomain,
+            publishedSkill?.verificationSignals?.domainProof,
+          ),
         },
         repo: publishedSkill?.repo ?? repoUrl,
         commit: publishedSkill?.commit ?? commitSha,
@@ -1546,17 +1693,38 @@ const run = async () => {
         skillName,
         skillDir: skillDirInput,
       });
-    const stateSignature = buildManagedCommentStateSignature({
+    const packageSummary = {
+      includedFileCount: Number(previewReportWithHcs28?.package_summary?.included_file_count ?? files.length),
+      excludedFileCount: Number(previewReportWithHcs28?.package_summary?.excluded_file_count ?? excludedFiles.length),
+      totalBytes: Number(previewReportWithHcs28?.package_summary?.total_bytes ?? totalBytes),
+    };
+    const previewCommentMetadata = buildPreviewCommentMetadata({
       mode,
+      groupKey,
+      skillDir: skillDirInput,
+      skillName,
+      skillVersion,
       trustTier,
       publishReadiness,
       missingRequirements,
       estimatedCreditsRange,
+      packageSummary,
       statusUrl,
+      purchaseUrl,
+      publishUrl,
+      verificationUrl,
+      workflowRunUrl: getWorkflowRunUrl(),
+      conversionHintLevel,
+      nextActions: previewReportWithHcs28.suggested_next_steps,
+      hcs28,
+    });
+    const stateSignature = buildManagedCommentStateSignature({
+      ...previewCommentMetadata,
       hcs28,
     });
     const marker = buildManagedCommentMarker(groupKey);
-    const managedCommentUrl = await syncManagedComment({
+    const managedCommentResult = await syncManagedComment({
+      githubApiRequest,
       token: githubToken,
       eventName: getEnv('GITHUB_EVENT_NAME'),
       owner,
@@ -1568,20 +1736,19 @@ const run = async () => {
       marker,
       stateSignature,
       mode,
+      currentMetadata: previewCommentMetadata,
       skillName,
       skillVersion,
-      trustTier,
-      missingRequirements,
-      estimatedCreditsRange,
-      statusUrl,
-      purchaseUrl,
-      publishUrl,
-      verificationUrl,
-      nextActions: previewReportWithHcs28.suggested_next_steps,
       hcs28,
+      workflowRunUrl: getWorkflowRunUrl(),
+      conversionHintLevel,
+      packageSummary,
     }).catch((error) => {
       stderr(`Managed comment update failed: ${error instanceof Error ? error.message : String(error)}`);
-      return '';
+      return createAnnotationResult({
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      });
     });
     validationResult.distribution = distribution;
     validationResult.previewReport = previewReportWithHcs28;
@@ -1619,7 +1786,12 @@ const run = async () => {
       publishReadiness,
       missingRequirements,
       estimatedCreditsRange,
-      managedCommentUrl,
+      managedCommentUrl: managedCommentResult.url,
+      managedCommentStatus: managedCommentResult.status,
+      managedCommentReason: managedCommentResult.reason,
+      publishCommentUrl: '',
+      publishCommentStatus: 'disabled',
+      releaseAnnotationStatus: 'disabled',
       purchaseUrl,
       publishUrl,
       verificationUrl,
@@ -1689,6 +1861,71 @@ const run = async () => {
 
   if (mode === 'quote') {
     const distribution = buildDistribution(apiBaseUrl, skillName, skillVersion, parsedSkillJson);
+    const eventPayload = await parseEventPayload();
+    const [owner = '', repo = ''] = repository.split('/', 2);
+    const pullNumber = Number(eventPayload?.pull_request?.number ?? 0) || null;
+    const groupKey =
+      explicitGroupKey ||
+      buildDefaultManagedCommentGroupKey({
+        repository,
+        pullNumber,
+        skillName,
+        skillDir: skillDirInput,
+      });
+    const quoteCommentMetadata = buildPreviewCommentMetadata({
+      mode: 'quote',
+      groupKey,
+      skillDir: skillDirInput,
+      skillName,
+      skillVersion,
+      trustTier: '',
+      publishReadiness: 'quoted',
+      missingRequirements: [],
+      estimatedCreditsRange: `${quoteResult.credits} credits`,
+      packageSummary: {
+        includedFileCount: files.length,
+        excludedFileCount: excludedFiles.length,
+        totalBytes,
+      },
+      statusUrl: distribution.urls.skillPageUrl,
+      purchaseUrl: distribution.urls.skillPageUrl,
+      publishUrl: distribution.urls.skillPageUrl,
+      verificationUrl: distribution.urls.skillPageUrl,
+      workflowRunUrl: getWorkflowRunUrl(),
+      conversionHintLevel,
+      nextActions: [],
+      hcs28: {},
+    });
+    const quoteStateSignature = buildManagedCommentStateSignature({
+      ...quoteCommentMetadata,
+      hcs28: {},
+    });
+    const quoteMarker = buildManagedCommentMarker(groupKey);
+    const quoteCommentResult = await syncManagedComment({
+      githubApiRequest,
+      token: githubToken,
+      eventName: getEnv('GITHUB_EVENT_NAME'),
+      owner,
+      repo,
+      pullNumber,
+      commentMode,
+      commentOnSuccess,
+      publishReadiness: 'quoted',
+      marker: quoteMarker,
+      stateSignature: quoteStateSignature,
+      mode: 'quote',
+      currentMetadata: quoteCommentMetadata,
+      skillName,
+      skillVersion,
+      hcs28: {},
+      workflowRunUrl: getWorkflowRunUrl(),
+      conversionHintLevel,
+      packageSummary: quoteCommentMetadata.packageSummary,
+    }).catch((error) =>
+      createAnnotationResult({
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      }));
     quoteResult.distribution = distribution;
     await setActionOutput('published', 'false');
     await setActionOutput('skip-reason', 'quote-only');
@@ -1717,7 +1954,12 @@ const run = async () => {
       publishReadiness: 'quoted',
       missingRequirements: [],
       estimatedCreditsRange: `${quoteResult.credits} credits`,
-      managedCommentUrl: '',
+      managedCommentUrl: quoteCommentResult.url,
+      managedCommentStatus: quoteCommentResult.status,
+      managedCommentReason: quoteCommentResult.reason,
+      publishCommentUrl: '',
+      publishCommentStatus: 'disabled',
+      releaseAnnotationStatus: 'disabled',
       purchaseUrl: distribution.urls.skillPageUrl,
       publishUrl: distribution.urls.skillPageUrl,
       verificationUrl: distribution.urls.skillPageUrl,
@@ -1805,16 +2047,57 @@ const run = async () => {
 
   const markdown = buildPublishMarkdown(result);
   const eventPayload = await parseEventPayload();
-  const annotationTarget = await annotateResult({
+  const [owner = '', repo = ''] = repository.split('/', 2);
+  const explicitPublishGroupKey =
+    explicitGroupKey ||
+    buildDefaultManagedCommentGroupKey({
+      repository,
+      pullNumber: Number(eventPayload?.pull_request?.number ?? 0) || null,
+      skillName: result.skillName,
+      skillDir: skillDirInput,
+    });
+  const releaseId = Number(eventPayload?.release?.id ?? 0);
+  const annotationResult = await syncPublishAnnotations({
+    githubApiRequest,
     shouldAnnotate,
-    token: githubToken,
-    markdown,
-    jobId,
+    token: githubToken || getEnv('GITHUB_TOKEN'),
+    owner,
+    repo,
+    eventName,
     eventPayload,
+    releaseId,
+    commitSha,
+    groupKey: explicitPublishGroupKey,
+    skillName: result.skillName,
+    skillVersion: result.skillVersion,
+    published: true,
+    skipReason: '',
+    credits: String(result.credits ?? ''),
+    estimatedCostHbar: String(result.estimatedCostHbar ?? ''),
+    quoteId: result.quoteId,
+    jobId: result.jobId,
+    skillJsonHrl: result.skillJsonHrl,
+    directoryTopicId: result.directoryTopicId,
+    packageTopicId: result.packageTopicId,
+    repoUrl: result.repoUrl,
+    excludedFiles: result.excludedFiles,
+    workflowRunUrl: getWorkflowRunUrl(),
+    distribution: result.distribution,
   }).catch(error => {
     stderr(`Annotation failed: ${error instanceof Error ? error.message : String(error)}`);
-    return 'failed';
+    return {
+      annotationTarget: 'failed',
+      publishComment: createAnnotationResult({
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+      releaseBlock: createAnnotationResult({
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    };
   });
+  const annotationTarget = annotationResult.annotationTarget;
 
   await appendStepSummary(markdown);
 
@@ -1844,6 +2127,11 @@ const run = async () => {
     missingRequirements: [],
     estimatedCreditsRange: '',
     managedCommentUrl: '',
+    managedCommentStatus: 'disabled',
+    managedCommentReason: 'publish-mode',
+    publishCommentUrl: annotationResult.publishComment?.url ?? '',
+    publishCommentStatus: annotationResult.publishComment?.status ?? '',
+    releaseAnnotationStatus: annotationResult.releaseBlock?.status ?? '',
     purchaseUrl: '',
     publishUrl: result.distribution.urls.skillPageUrl,
     verificationUrl: result.distribution.urls.skillPageUrl,
@@ -1880,6 +2168,10 @@ run().catch(async error => {
     await setActionOutput('hcs28-score-total', '');
     await setActionOutput('preview-json-path', '');
     await setActionOutput('status-url', '');
+    await setActionOutput('managed-comment-status', 'failed');
+    await setActionOutput('managed-comment-reason', message);
+    await setActionOutput('publish-comment-status', 'failed');
+    await setActionOutput('release-annotation-status', 'failed');
     await setActionOutput('annotation-target', 'failed');
   }
   process.exit(1);

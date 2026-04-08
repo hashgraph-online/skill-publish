@@ -274,6 +274,11 @@ try {
     'Validate workflow must publish scorecard comments in low-noise state-change mode.',
   );
   assert.equal(
+    validateWorkflow.includes('repo-skill-dir:'),
+    true,
+    'Validate workflow must pass canonical repo-skill-dir when staging package folders.',
+  );
+  assert.equal(
     validateWorkflow.includes(
       'hashgraph-online/skill-publish@9742f4cab7ca48683d39dcd16f92ec7dfe565df7',
     ),
@@ -323,6 +328,11 @@ try {
     scaffoldedValidateWorkflow.includes('comment-mode: "state-changes"'),
     true,
     'Scaffolded validate workflow must enable low-noise scorecard comment updates.',
+  );
+  assert.equal(
+    scaffoldedValidateWorkflow.includes('repo-skill-dir:'),
+    true,
+    'Scaffolded validate workflow must pass canonical repo-skill-dir when staging package folders.',
   );
   assert.equal(
     scaffoldedValidateWorkflow.includes('Prepare skill package'),

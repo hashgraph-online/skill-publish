@@ -471,7 +471,7 @@ This action exists to make that publish step deterministic and automated in CI.
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | No | `publish` | Execution mode: `validate`, `quote`, or `publish`. |
+| `mode` | No | `publish` | Execution mode: `validate`, `monitor`, `quote`, or `publish`. |
 | `api-key` | Validate: No, Quote/Publish: Yes | - | Registry Broker API key. Publish still consumes credits and requires funded broker auth. |
 | `skill-dir` | Yes | - | Path containing `SKILL.md`. `skill.json` is optional and will be synthesized when missing. |
 | `repo-skill-dir` | No | - | Original path to the skill directory inside the repository. Use this when CI stages the package into a temporary folder and you still want stable status lookups. |
@@ -491,60 +491,65 @@ This action exists to make that publish step deterministic and automated in CI.
 | `comment-mode` | No | `state-changes` | Controls low-noise managed PR comment behavior for monitor runs. |
 | `comment-on-success` | No | `true` | When false, skips managed PR comment updates after successful validate or monitor runs. |
 | `quote-preview` | No | `false` | Requests anonymous publish cost estimates during validate or monitor when available. |
+| `conversion-hint-level` | No | `soft` | Preview comment guidance verbosity: `off`, `soft`, or `detailed`. |
 | `group-key` | No | skill directory | Optional grouping key for multi-skill monitor summaries. |
 
 ## Outputs
 
 | Output | Description |
 | --- | --- |
-| `published` | `true` when publish executed, `false` when skipped. |
-| `skip-reason` | Skip reason (currently `version-exists`). |
-| `preview-json` | JSON preview report emitted for validate or monitor runs. |
-| `preview-json-path` | Path to the local preview report JSON file. |
-| `status-url` | Canonical status or preview page URL for validate, monitor, or publish. |
-| `trust-tier` | Lifecycle trust tier resolved from validate, monitor, or publish state. |
-| `publish-readiness` | Readiness summary for whether a publish can proceed cleanly. |
-| `missing-requirements` | JSON array of missing conditions blocking publish readiness. |
-| `estimated-credits-range` | Estimated publish credit range for anonymous quote previews. |
-| `managed-comment-url` | URL of the managed PR comment for monitor state changes. |
-| `purchase-url` | HOL purchase/setup entrypoint for funded publish readiness. |
-| `publish-url` | HOL publish flow entrypoint. |
-| `verification-url` | HOL verification flow entrypoint for the resolved skill. |
-| `skill-name` | Skill name from publish result. |
-| `skill-version` | Skill version from publish result. |
-| `preview-json` | Validate-mode `skill-preview.v1` payload. |
+| `preview-json` | Validate/monitor preview artifact payload (`skill-preview.v1`). |
+| `hcs28-json` | HCS-28 trust scoring payload generated in validate/monitor. |
+| `hcs28-score-total` | HCS-28 total score from validate/monitor. |
 | `preview-json-path` | Path to the generated preview JSON file. |
-| `status-url` | Preview or published lifecycle URL, depending on mode. |
+| `status-url` | Lifecycle status/preview page URL when available. |
+| `trust-tier` | Lifecycle trust tier for the current state. |
+| `publish-readiness` | Lifecycle readiness summary (`ready`, `blocked`, `quoted`, `published`). |
+| `missing-requirements` | JSON array of requirements still blocking publish readiness. |
+| `estimated-credits-range` | Estimated publish credit range from quote-preview. |
+| `managed-comment-url` | Managed preview comment URL for PR runs. |
+| `managed-comment-status` | Managed preview comment status (`disabled`, `skipped`, `created`, `updated`, `unchanged`, `failed`). |
+| `managed-comment-reason` | Managed preview comment skip/failure reason when provided. |
+| `publish-comment-url` | Sticky publish lifecycle PR comment URL when publish annotations run. |
+| `publish-comment-status` | Publish comment status (`disabled`, `skipped`, `created`, `updated`, `unchanged`, `failed`). |
+| `release-annotation-status` | Release body block status (`disabled`, `skipped`, `created`, `updated`, `unchanged`, `failed`). |
+| `purchase-url` | HOL submit/purchase flow URL for credit setup. |
+| `publish-url` | HOL publish flow URL for the resolved skill. |
+| `verification-url` | HOL verification/domain-proof flow URL for trust upgrades. |
+| `published` | `true` when publish executed, `false` when skipped. |
+| `skip-reason` | Skip reason (for example `version-exists`). |
+| `skill-name` | Skill name from resolved package metadata. |
+| `skill-version` | Skill version from resolved package metadata. |
 | `quote-id` | Broker quote identifier. |
 | `job-id` | Publish job identifier. |
 | `directory-topic-id` | Skill directory topic ID. |
 | `package-topic-id` | Skill package topic ID. |
 | `skill-json-hrl` | Canonical `hcs://...` reference for `skill.json`. |
-| `credits` | Credits consumed. |
+| `credits` | Credits quoted/consumed. |
 | `estimated-cost-hbar` | Estimated HBAR cost from quote. |
-| `skill-page-url` | Canonical skill detail page URL for the resolved `name@version`. |
-| `entity-url` | Machine-readable `entity.json` URL for the canonical skill page. |
-| `docs-url` | Canonical HOL docs URL for the registry. |
-| `openapi-url` | Canonical OpenAPI URL for the registry API. |
+| `skill-page-url` | Canonical skill detail page URL for resolved `name@version`. |
+| `entity-url` | Machine-readable `entity.json` URL for the skill page. |
+| `docs-url` | Canonical HOL docs URL for Registry Broker. |
+| `openapi-url` | Canonical OpenAPI URL for Registry Broker API. |
 | `install-url-pinned-skill-md` | Pinned `SKILL.md` resolver URL. |
 | `install-url-latest-skill-md` | Latest `SKILL.md` resolver URL. |
 | `install-url-pinned-manifest` | Pinned `manifest` resolver URL. |
 | `install-url-latest-manifest` | Latest `manifest` resolver URL. |
 | `install-metadata-pinned-url` | Pinned install metadata URL. |
 | `install-metadata-latest-url` | Latest install metadata URL. |
-| `badge-markdown` | Markdown badge snippet for the resolved version. |
-| `badge-html` | HTML badge snippet for the resolved version. |
-| `markdown-link` | Markdown link snippet for the canonical skill page. |
-| `html-link` | HTML link snippet for the canonical skill page. |
+| `badge-markdown` | Markdown badge snippet for resolved version. |
+| `badge-html` | HTML badge snippet for resolved version. |
+| `markdown-link` | Markdown link snippet for canonical skill page. |
+| `html-link` | HTML link snippet for canonical skill page. |
 | `readme-snippet` | README snippet with canonical install links. |
 | `docs-snippet` | Docs snippet with canonical HOL links. |
 | `citation-snippet` | Citation snippet pointing to canonical HOL metadata. |
 | `release-notes` | Release notes snippet with install links and badge markdown. |
-| `package-metadata-json` | JSON block for package metadata pointing at HOL canonical URLs. |
+| `package-metadata-json` | JSON block for metadata pointing to canonical HOL URLs. |
 | `codemeta-json` | CodeMeta document for the resolved skill version. |
 | `attested-kit-json` | Full attested distribution kit payload. |
-| `next-actions` | Post-publish checklist with the best distribution next steps. |
-| `annotation-target` | Annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
+| `next-actions` | Suggested post-run next actions summary. |
+| `annotation-target` | Backward-compatible annotation destination (`release:<id>`, `pr:<id>`, `none`, `failed`). |
 | `indexnow-result` | IndexNow submission result when enabled. |
 | `result-json` | Full result payload as JSON string. |
 
@@ -593,11 +598,11 @@ An HRL looks like: `hcs://1/0.0.12345`
 `mode=publish`
 1. Discovers and validates package files in `skill-dir`.
 2. Resolves broker limits from `/skills/config`.
-3. In `validate` and `monitor`, emits preview/status outputs without requiring an API key.
-4. In `monitor`, polls broker lifecycle state and can update a single managed PR comment.
-5. In `quote`, requests authenticated cost estimates via `POST /skills/quote`.
-6. In `publish`, checks if `name@version` already exists, publishes via `POST /skills/publish`, then polls `GET /skills/jobs/{jobId}` until completion.
-7. Emits outputs, step summary, and optional GitHub annotations.
+3. Requests authenticated cost estimates via `POST /skills/quote`.
+4. Checks if `name@version` already exists.
+5. Publishes via `POST /skills/publish`, then polls `GET /skills/jobs/{jobId}` until completion.
+6. Upserts sticky publish annotations (PR comment and/or release body block) when enabled.
+7. Emits outputs, step summary, and distribution snippets.
 
 ## Idempotency and Failure Behavior
 

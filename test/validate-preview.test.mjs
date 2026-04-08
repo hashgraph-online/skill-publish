@@ -136,6 +136,11 @@ assert.equal(githubOutput.get('publish-readiness'), 'ready');
 assert.equal(githubOutput.get('missing-requirements'), '[]');
 assert.equal(githubOutput.get('estimated-credits-range'), '');
 assert.equal(githubOutput.get('managed-comment-url'), '');
+assert.equal(githubOutput.get('managed-comment-status'), 'skipped');
+assert.equal(githubOutput.get('managed-comment-reason'), 'missing-github-token');
+assert.equal(githubOutput.get('publish-comment-url'), '');
+assert.equal(githubOutput.get('publish-comment-status'), 'disabled');
+assert.equal(githubOutput.get('release-annotation-status'), 'disabled');
 const previewJson = JSON.parse(githubOutput.get('preview-json'));
 const previewJsonPath = githubOutput.get('preview-json-path');
 assert.ok(previewJsonPath);
@@ -226,7 +231,6 @@ const apiServer = await listenServer(async (request, response) => {
     );
     return;
   }
-
   if (requestPath === '/api/v1/skills') {
     const name = requestUrl.searchParams.get('name') ?? '';
     const version = requestUrl.searchParams.get('version') ?? '';
@@ -541,14 +545,17 @@ assert.equal(
   managedCommentOutput.get('managed-comment-url'),
   'https://github.com/hashgraph-online/valid-skill/pull/5#issuecomment-501',
 );
+assert.equal(managedCommentOutput.get('managed-comment-status'), 'created');
+assert.equal(managedCommentOutput.get('publish-comment-status'), 'disabled');
+assert.equal(managedCommentOutput.get('release-annotation-status'), 'disabled');
 assert.equal(managedCommentRequests.length, 1);
 assert.match(
   managedCommentRequests[0]?.body ?? '',
-  /## HOL skill scorecard/u,
+  /## HOL skill-publish · ✅ Publish-ready/u,
 );
 assert.match(
   managedCommentRequests[0]?.body ?? '',
-  /\| HCS-28 total \| Trust tier \| Publish readiness \|/u,
+  /\| Metric \| Value \|/u,
 );
 assert.match(
   managedCommentRequests[0]?.body ?? '',
@@ -566,13 +573,9 @@ assert.match(
   managedCommentRequests[0]?.body ?? '',
   /link your domain so HOL can verify the TXT record/u,
 );
-assert.match(
-  managedCommentRequests[0]?.body ?? '',
-  /### Links/u,
-);
-assert.match(
-  managedCommentRequests[0]?.body ?? '',
-  /Manage on HOL: \[Open submit flow\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u,
+assert.equal(
+  (managedCommentRequests[0]?.body ?? '').includes('### Links'),
+  false,
 );
 
 const dedupeRun = await runActionMode('domain-proof-skill', 'validate', {
@@ -602,6 +605,9 @@ assert.equal(
   dedupeOutput.get('managed-comment-url'),
   'https://github.com/hashgraph-online/valid-skill/pull/5#issuecomment-501',
 );
+assert.equal(dedupeOutput.get('managed-comment-status'), 'updated');
+assert.equal(dedupeOutput.get('publish-comment-status'), 'disabled');
+assert.equal(dedupeOutput.get('release-annotation-status'), 'disabled');
 assert.equal(
   managedCommentRequests.length,
   1,
@@ -610,18 +616,53 @@ assert.equal(
 assert.equal(managedCommentUpdates.length, 1);
 assert.match(
   managedCommentUpdates[0]?.body ?? '',
-  /## HOL skill scorecard/u,
+  /## HOL skill-publish · ✅ Publish-ready/u,
 );
 assert.match(
   managedCommentUpdates[0]?.body ?? '',
-  /### Links/u,
+  /\| Domain proof \| 100(?:\.0)? \| Verified \|/u,
 );
-assert.match(
-  managedCommentUpdates[0]?.body ?? '',
-  /Manage on HOL: \[Open submit flow\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u,
+assert.equal(
+  (managedCommentUpdates[0]?.body ?? '').includes('link your domain so HOL can verify the TXT record'),
+  false,
 );
 const dedupeHcs28 = JSON.parse(dedupeOutput.get('hcs28-json'));
-assert.ok(dedupeHcs28?.trustScores?.total >= 0);
+assert.equal(
+  dedupeHcs28?.trustScores?.['verification.domain-proof.score'],
+  100,
+);
+assert.ok(
+  statusByRepoRequests.some((entry) =>
+    (entry?.skillDir ?? '').includes('publish-package-domain-proof-skill'),
+  ),
+);
+assert.ok(
+  versionLookupRequests.some((entry) =>
+    entry?.name === 'domain-proof-skill' && entry?.version === '1.0.0',
+  ),
+);
+
+const statusOverrideRun = await runActionMode('domain-proof-skill', 'validate', {
+  apiBaseUrl: `${apiServer.baseUrl}/api/v1`,
+  packageInRuntime: true,
+  relativeSkillDir: true,
+  extraEnv: {
+    INPUT_NAME: 'status-override-skill',
+  },
+});
+assert.equal(
+  statusOverrideRun.error,
+  undefined,
+  statusOverrideRun.error?.stderr ?? statusOverrideRun.error?.message,
+);
+const statusOverrideOutput = parseGithubOutput(
+  await readFile(statusOverrideRun.githubOutputPath, 'utf8'),
+);
+const statusOverrideHcs28 = JSON.parse(statusOverrideOutput.get('hcs28-json'));
+assert.equal(
+  statusOverrideHcs28?.trustScores?.['verification.domain-proof.score'],
+  100,
+);
 
 const missingSkillMdRun = await runActionMode('missing-skill-md', 'validate');
 assert.ok(missingSkillMdRun.error);
@@ -660,6 +701,7 @@ await rm(trustedPreviewRun.runtimeRoot, { recursive: true, force: true });
 await rm(unsafePreviewRun.runtimeRoot, { recursive: true, force: true });
 await rm(managedCommentRun.runtimeRoot, { recursive: true, force: true });
 await rm(dedupeRun.runtimeRoot, { recursive: true, force: true });
+await rm(statusOverrideRun.runtimeRoot, { recursive: true, force: true });
 if (missingSkillMdRun.runtimeRoot) {
   await rm(missingSkillMdRun.runtimeRoot, { recursive: true, force: true });
 }

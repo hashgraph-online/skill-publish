@@ -67,7 +67,7 @@ inputs:
     required: false
     default: "false"
   comment-mode:
-    description: "Managed comment behavior: off, failures-only, state-changes, or always"
+    description: "Managed preview comment behavior: off, failures-only, state-changes, or always"
     required: false
     default: "state-changes"
   comment-on-success:
@@ -116,6 +116,21 @@ outputs:
   managed-comment-url:
     description: "Managed GitHub comment URL when the action updates a PR or issue comment"
     value: ${{ steps.publish.outputs.managed-comment-url }}
+  managed-comment-status:
+    description: "Managed preview comment update status (disabled, skipped, created, updated, unchanged, failed)"
+    value: ${{ steps.publish.outputs.managed-comment-status }}
+  managed-comment-reason:
+    description: "Managed preview comment status detail or skip reason"
+    value: ${{ steps.publish.outputs.managed-comment-reason }}
+  publish-comment-url:
+    description: "Publish lifecycle PR comment URL when publish annotations are enabled"
+    value: ${{ steps.publish.outputs.publish-comment-url }}
+  publish-comment-status:
+    description: "Publish lifecycle PR comment status (disabled, skipped, created, updated, unchanged, failed)"
+    value: ${{ steps.publish.outputs.publish-comment-status }}
+  release-annotation-status:
+    description: "Release body lifecycle block status (disabled, skipped, created, updated, unchanged, failed)"
+    value: ${{ steps.publish.outputs.release-annotation-status }}
   purchase-url:
     description: "Deep link to purchase or top up credits for publish"
     value: ${{ steps.publish.outputs.purchase-url }}

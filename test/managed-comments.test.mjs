@@ -13,7 +13,7 @@ const body = buildManagedCommentBody({
   skillVersion: '1.5.2',
   trustTier: 'verified',
   publishReadiness: 'ready',
-  missingRequirements: ['domain-proof'],
+  missingRequirements: ['repo_url'],
   estimatedCreditsRange: '64-76',
   statusUrl: 'https://hol.org/registry/skills/registry-broker',
   purchaseUrl: 'https://hol.org/registry/skills/submit',
@@ -38,11 +38,20 @@ const body = buildManagedCommentBody({
   },
 });
 
-assert.match(body, /## HOL skill scorecard/u);
-assert.match(body, /\| HCS-28 total \| Trust tier \| Publish readiness \|/u);
-assert.match(body, /\| 74\.5 \| `verified` \| `ready` \|/u);
+assert.match(body, /## HOL skill-publish · ✅ Publish-ready/u);
+assert.match(body, /<!-- skill-publish-state:sig-1 -->/u);
+assert.match(body, /<!-- skill-publish-meta:[A-Za-z0-9_-]+ -->/u);
+assert.match(body, /`registry-broker@1\.5\.2` checked in `monitor` mode/u);
+assert.match(body, /\| Trust tier \| `Verified` \|/u);
+assert.match(body, /\| HCS-28 total \| `74\.5` \|/u);
+assert.match(body, /\| Publish readiness \| `Publish-ready` \|/u);
+assert.match(body, /\| Missing requirements \| `1` \|/u);
 assert.match(body, /\| Domain proof \| 0 \| Link domain on HOL \|/u);
 assert.match(body, /\| Cisco safety scan \| 94 \| Strong \|/u);
+assert.match(body, /### Blockers/u);
+assert.match(body, /Repository provenance missing/u);
+assert.match(body, /### Delta/u);
+assert.match(body, /First preview comment for this PR\./u);
 assert.match(body, /### How to improve this score/u);
 assert.match(body, /\[HOL Skills submit\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u);
 assert.match(body, /link your domain so HOL can verify the TXT record/u);
@@ -52,7 +61,8 @@ assert.match(
   /\[the status page\]\(https:\/\/hol\.org\/registry\/skills\/registry-broker\)/u,
 );
 assert.match(body, /\*\*Recommended next step:\*\* \[Verify domain proof\]/u);
-assert.match(body, /Purchase credits/u);
+assert.match(body, /### Links/u);
+assert.match(body, /Manage on HOL: \[Open submit flow\]\(https:\/\/hol\.org\/registry\/skills\/submit\)/u);
 
 console.log('managed-comments formatting test passed');
 
