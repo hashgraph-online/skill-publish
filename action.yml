@@ -26,6 +26,9 @@ inputs:
   skill-dir:
     description: "Path to the skill package folder containing SKILL.md and skill.json"
     required: true
+  repo-skill-dir:
+    description: "Original skill directory relative to repo root (used for status lookups when skill-dir is staged)"
+    required: false
   name:
     description: "Optional name override for skill.json"
     required: false
@@ -255,6 +258,7 @@ runs:
         INPUT_PUBLISH_AUTH: ${{ inputs.publish-auth }}
         INPUT_ACCOUNT_ID: ${{ inputs.account-id }}
         INPUT_SKILL_DIR: ${{ inputs.skill-dir }}
+        INPUT_REPO_SKILL_DIR: ${{ inputs.repo-skill-dir }}
         INPUT_NAME: ${{ inputs.name }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_ALLOW_NONSTABLE_PRODUCTION_VERSION: ${{ inputs.allow-nonstable-production-version }}

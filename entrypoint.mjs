@@ -354,7 +354,8 @@ const appendStepSummary = async (markdown) => {
 const summarizeErrorBody = async (response) => {
   try {
     const text = await response.text();
-    return text.trim();
+    const trimmed = text.trim();
+    return trimmed.length > 1024 ? `${trimmed.slice(0, 1024)}...` : trimmed;
   } catch {
     return '';
   }

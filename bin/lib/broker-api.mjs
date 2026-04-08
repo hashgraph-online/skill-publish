@@ -288,9 +288,6 @@ export async function exchangeSkillPublishApiKeyFromGithubOidc(params) {
       headers: { 'content-type': 'application/json' },
       body: {
         token: params.token,
-        ...(typeof params.sponsorFirstPublish === 'boolean'
-          ? { sponsorFirstPublish: params.sponsorFirstPublish }
-          : {}),
       },
       ...(params.fetchImplementation ? { fetchImplementation: params.fetchImplementation } : {}),
     });

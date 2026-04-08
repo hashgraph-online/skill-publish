@@ -474,6 +474,7 @@ This action exists to make that publish step deterministic and automated in CI.
 | `mode` | No | `publish` | Execution mode: `validate`, `quote`, or `publish`. |
 | `api-key` | Validate: No, Quote/Publish: Yes | - | Registry Broker API key. Publish still consumes credits and requires funded broker auth. |
 | `skill-dir` | Yes | - | Path containing `SKILL.md`. `skill.json` is optional and will be synthesized when missing. |
+| `repo-skill-dir` | No | - | Original path to the skill directory inside the repository. Use this when CI stages the package into a temporary folder and you still want stable status lookups. |
 | `api-base-url` | No | `https://hol.org/registry/api/v1` | Broker base URL (`.../registry` or `.../registry/api/v1`). |
 | `publish-auth` | No | `api-key` | Quote/publish auth mode: `api-key` or `github-oidc`. |
 | `account-id` | No | - | Optional Hedera account ID for publish authorization edge cases. |

@@ -53,6 +53,7 @@ jobs:
         with:
           mode: validate
           skill-dir: ${{ steps.package.outputs.dir }}
+          repo-skill-dir: skills/my-skill
           annotate: "false"
           github-token: ${{ github.token }}
           comment-mode: "state-changes"

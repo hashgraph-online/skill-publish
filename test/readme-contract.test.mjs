@@ -44,6 +44,11 @@ assert.match(
 );
 assert.match(
   actionManifest,
+  /repo-skill-dir:\n\s+description:\s+"Original skill directory relative to repo root \(used for status lookups when skill-dir is staged\)"/u,
+  'action.yml must expose repo-skill-dir for staged package status lookups',
+);
+assert.match(
+  actionManifest,
   /- name: Enable pnpm\n\s+shell: bash\n\s+working-directory: \$\{\{ github\.action_path \}\}\n\s+run: corepack enable pnpm/u,
   'action.yml must enable pnpm inside github.action_path before running the entrypoint',
 );
@@ -96,6 +101,11 @@ assert.equal(
   readme.includes('POST /api/v1/publish/github-oidc/exchange'),
   true,
   'README must document the trusted publish exchange contract when broker support is available.',
+);
+assert.equal(
+  readme.includes('| `repo-skill-dir` | No | - | Original path to the skill directory inside the repository.'),
+  true,
+  'README must document repo-skill-dir for staged package workflows.',
 );
 
 process.stdout.write('readme/action contract test passed\n');

@@ -223,6 +223,11 @@ try {
     true,
     'Markdown-only skill repos must still generate a validate workflow that stages the package.',
   );
+  assert.equal(
+    markdownOnlyValidateWorkflow.includes('repo-skill-dir: skills/docs-skill'),
+    true,
+    'Markdown-only skill repos must preserve the original repo skill path for status lookups.',
+  );
 
   const validateWorkflow = await readFile(
     path.join(existingRepoDir, '.github', 'workflows', 'validate-skill.yml'),
@@ -252,6 +257,11 @@ try {
     validateWorkflow.includes('Prepare skill package'),
     true,
     'Validate workflow must stage a canonical package before validation.',
+  );
+  assert.equal(
+    validateWorkflow.includes('repo-skill-dir: skills/weather-skill'),
+    true,
+    'Validate workflow must preserve the original repo skill path for staged package status lookups.',
   );
   assert.equal(
     validateWorkflow.includes('github-token: ${{ github.token }}'),
@@ -318,6 +328,11 @@ try {
     scaffoldedValidateWorkflow.includes('Prepare skill package'),
     true,
     'Scaffolded validate workflow must stage a canonical package before validation.',
+  );
+  assert.equal(
+    scaffoldedValidateWorkflow.includes('repo-skill-dir: skills/catalog-skill'),
+    true,
+    'Scaffolded validate workflow must preserve the original repo skill path for staged package status lookups.',
   );
   assert.equal(
     scaffoldedValidateWorkflow.includes(
