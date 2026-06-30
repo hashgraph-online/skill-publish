@@ -20,6 +20,7 @@ const invalidRepoDir = path.join(runtimeRoot, 'invalid-skill-repo');
 const ambiguousRepoDir = path.join(runtimeRoot, 'ambiguous-skill-repo');
 const fixtureOnlyRepoDir = path.join(runtimeRoot, 'fixture-only-repo');
 const scaffoldRepoDir = path.join(runtimeRoot, 'scaffolded-skill-repo');
+const approvalPresetRepoDir = path.join(runtimeRoot, 'approval-preset-skill-repo');
 
 try {
   await mkdir(path.join(existingRepoDir, 'skills', 'weather-skill'), {
@@ -302,6 +303,19 @@ try {
   );
   assert.equal(scaffoldResult.status, 0, scaffoldResult.stderr);
 
+  const approvalPresetResult = runCli(
+    [
+      'scaffold-repo',
+      approvalPresetRepoDir,
+      '--name',
+      'social-review-skill',
+      '--preset',
+      'approval',
+    ],
+    repoRoot,
+  );
+  assert.equal(approvalPresetResult.status, 0, approvalPresetResult.stderr);
+
   const scaffoldedValidateWorkflow = await readFile(
     path.join(scaffoldRepoDir, '.github', 'workflows', 'validate-skill.yml'),
     'utf8',
@@ -313,6 +327,16 @@ try {
   const releaseWorkflow = await readFile(
     path.join(repoRoot, '.github', 'workflows', 'release.yml'),
     'utf8',
+  );
+  const approvalSkillMd = await readFile(
+    path.join(approvalPresetRepoDir, 'skills', 'social-review-skill', 'SKILL.md'),
+    'utf8',
+  );
+  const approvalSkillJson = JSON.parse(
+    await readFile(
+      path.join(approvalPresetRepoDir, 'skills', 'social-review-skill', 'skill.json'),
+      'utf8',
+    ),
   );
   assert.equal(
     scaffoldedValidateWorkflow.includes('id-token: write'),
@@ -367,6 +391,15 @@ try {
     scaffoldedReadme.includes('Add `RB_API_KEY` only when you are ready to quote and publish immutable releases.'),
     true,
     'Scaffolded repo README must keep publish credit/auth setup separate from validate-first setup.',
+  );
+  assert.equal(
+    approvalSkillMd.includes('Require an exact approval signal before publishing'),
+    true,
+    'Approval preset must scaffold an explicit side-effect gate.',
+  );
+  assert.deepEqual(
+    approvalSkillJson.tags,
+    ['social-review-skill', 'approval', 'human-in-the-loop', 'publishing'],
   );
   assert.equal(
     releaseWorkflow.includes("tags:\n      - 'v*.*.*'"),

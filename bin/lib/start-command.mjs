@@ -25,7 +25,7 @@ const START_CHOICES = [
   { id: 'exit', label: 'Exit' },
 ];
 
-const PRESET_HELP = 'general | api | docs | mcp | assistant | monorepo';
+const PRESET_HELP = 'general | api | docs | mcp | approval | assistant | monorepo';
 
 function normalizeAnswer(value) {
   return String(value ?? '').trim();

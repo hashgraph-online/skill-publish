@@ -45,6 +45,22 @@ export const SKILL_PRESETS = {
     output: ['Explain the expected tool-selection behavior and final answer format.'],
     constraints: ['Document tool limits, side effects, and confirmation rules before destructive actions.'],
   },
+  approval: {
+    id: 'approval',
+    label: 'Approval-gated skill',
+    category: 'safety',
+    tags: ['approval', 'human-in-the-loop', 'publishing'],
+    overview:
+      'Describe the workflow that drafts or prepares user-facing output, then stops for explicit approval before side effects.',
+    whenToUse: [
+      'Use when the assistant drafts social posts, emails, support replies, release notes, or other publishable content.',
+    ],
+    inputs: ['List source evidence, target channels, reviewer identity, and any configured publishing tools.'],
+    output: ['Return a review packet, approval prompt, and execution result only after approval is recorded.'],
+    constraints: [
+      'Require an exact approval signal before publishing, sending, scheduling, deleting, or mutating external state.',
+    ],
+  },
   assistant: {
     id: 'assistant',
     label: 'Assistant skill',
