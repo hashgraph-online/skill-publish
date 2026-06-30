@@ -147,6 +147,7 @@ npx skill-publish
 npx skill-publish validate ./weather-skill
 npx skill-publish setup --account-id 0.0.12345 --hedera-private-key <key>
 npx skill-publish create ./weather-skill --name weather-skill --preset api
+npx skill-publish create ./social-review-skill --name social-review-skill --preset approval
 npx skill-publish quote ./weather-skill
 npx skill-publish publish ./weather-skill
 ```
@@ -212,6 +213,7 @@ npx skill-publish scaffold-repo ./weather-skill --name weather-skill
 
 # Golden path: scaffold repo, repair package metadata, and prepare for publish
 npx skill-publish create ./weather-skill --name weather-skill --preset api
+npx skill-publish create ./social-review-skill --name social-review-skill --preset approval
 ```
 
 Distribution helper flows:
